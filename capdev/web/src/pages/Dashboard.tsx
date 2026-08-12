@@ -5,7 +5,12 @@ import { formatBytes, formatDate, formatDuration } from "@/lib/format";
 import { UploadDialog } from "@/components/UploadDialog";
 import type { CallListItem, Session } from "@/lib/types";
 
-export function Dashboard({ session }: { session: Session }): JSX.Element {
+interface DashboardProps {
+  session: Session;
+  onOpenCall: (id: string) => void;
+}
+
+export function Dashboard({ session, onOpenCall }: DashboardProps): JSX.Element {
   const [calls, setCalls] = useState<CallListItem[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [uploading, setUploading] = useState(false);
@@ -60,8 +65,8 @@ export function Dashboard({ session }: { session: Session }): JSX.Element {
           <Figure value={String(calls.length)} caption="calls uploaded" />
           <Figure value={formatDuration(totalMs)} caption="total recorded" />
           <Figure
-            value={String(calls.filter((c) => c.recording_id === null).length)}
-            caption="missing audio"
+            value={String(calls.filter((c) => c.transcript_id !== null).length)}
+            caption="with transcripts"
           />
         </div>
       )}
@@ -76,7 +81,7 @@ export function Dashboard({ session }: { session: Session }): JSX.Element {
         ) : (
           <ul className="space-y-2.5">
             {calls.map((call) => (
-              <CallRow key={call.id} call={call} />
+              <CallRow key={call.id} call={call} onOpen={() => onOpenCall(call.id)} />
             ))}
           </ul>
         )}
@@ -126,7 +131,7 @@ function EmptyState({ canUpload, onUpload }: {
   );
 }
 
-function CallRow({ call }: { call: CallListItem }): JSX.Element {
+function CallRow({ call, onOpen }: { call: CallListItem; onOpen: () => void }): JSX.Element {
   const [playing, setPlaying] = useState(false);
   const [url, setUrl] = useState<string | null>(null);
   const [loadingUrl, setLoadingUrl] = useState(false);
@@ -147,7 +152,9 @@ function CallRow({ call }: { call: CallListItem }): JSX.Element {
     <li className="bg-card border border-rule-soft rounded px-4 py-3.5">
       <div className="flex justify-between items-start gap-4 flex-wrap">
         <div className="min-w-0">
-          <h3 className="font-display text-lg truncate">{call.title || "Untitled call"}</h3>
+          <button onClick={onOpen} className="font-display text-lg truncate text-left hover:underline underline-offset-2">
+            {call.title || "Untitled call"}
+          </button>
           <p className="text-[12px] text-ink-45 mt-0.5">
             {call.agent_name || "Rep not set"} &middot; {call.customer_ref || "No reference"} &middot;{" "}
             {formatDate(call.occurred_at ?? call.created_at)}
@@ -160,6 +167,13 @@ function CallRow({ call }: { call: CallListItem }): JSX.Element {
           <span className="font-mono text-[11px] text-ink-45">
             {formatBytes(call.size_bytes)}
           </span>
+          {call.transcript_id ? (
+            <span className="font-mono text-[11px] text-ink-45">
+              {call.segment_count} lines
+            </span>
+          ) : (
+            <span className="font-mono text-[11px] text-[#96690A]">no transcript</span>
+          )}
           {call.storage_path ? (
             <button
               onClick={() => void play()}
@@ -171,6 +185,12 @@ function CallRow({ call }: { call: CallListItem }): JSX.Element {
           ) : (
             <span className="text-[12px] text-[#96690A]">No audio</span>
           )}
+          <button
+            onClick={onOpen}
+            className="bg-ink text-ground border border-ink rounded px-3 py-1.5 text-[13px] font-medium hover:opacity-85"
+          >
+            Open
+          </button>
         </div>
       </div>
 

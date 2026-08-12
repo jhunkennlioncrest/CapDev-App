@@ -29,6 +29,9 @@ export interface CallListItem {
   original_filename: string | null;
   size_bytes: number | null;
   availability: string | null;
+  transcript_id: string | null;
+  segment_count: number;
+  has_timing: boolean;
 }
 
 export interface UploadDraft {

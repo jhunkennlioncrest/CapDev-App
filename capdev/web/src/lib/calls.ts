@@ -148,3 +148,84 @@ export async function signedUrlFor(path: string): Promise<string | null> {
     .createSignedUrl(path, 60 * 60);
   return error ? null : (data?.signedUrl ?? null);
 }
+
+// ---- transcripts ---------------------------------------------------------
+
+import type { Segment } from "./transcript";
+
+export interface StoredTranscript {
+  id: string;
+  call_id: string;
+  source_format: string;
+  original_filename: string;
+  segments: Segment[];
+  segment_count: number;
+  has_timing: boolean;
+  speaker_count: number;
+  version_no: number;
+  created_at: string;
+}
+
+export async function getCall(callId: string): Promise<CallListItem | null> {
+  const { data, error } = await supabase
+    .from("v_call_list")
+    .select("*")
+    .eq("id", callId)
+    .maybeSingle<CallListItem>();
+  if (error) throw new Error(error.message);
+  return data;
+}
+
+export async function getTranscript(callId: string): Promise<StoredTranscript | null> {
+  const { data, error } = await supabase
+    .from("transcript")
+    .select("id, call_id, source_format, original_filename, segments, segment_count, has_timing, speaker_count, version_no, created_at")
+    .eq("call_id", callId)
+    .is("archived_at", null)
+    .eq("status", "available")
+    .order("version_no", { ascending: false })
+    .limit(1)
+    .maybeSingle<StoredTranscript>();
+  if (error) throw new Error(error.message);
+  return data;
+}
+
+/**
+ * Saves a transcript. Re-uploading supersedes the previous version rather than
+ * overwriting it — evidence anchored to an older transcript must stay
+ * resolvable (Domain Blueprint §B).
+ */
+export async function saveTranscript(params: {
+  callId: string;
+  orgId: string;
+  personId: string;
+  recordingId: string | null;
+  format: string;
+  filename: string;
+  segments: Segment[];
+}): Promise<void> {
+  const existing = await getTranscript(params.callId);
+
+  if (existing) {
+    const { error } = await supabase
+      .from("transcript")
+      .update({ status: "superseded", updated_by: params.personId })
+      .eq("id", existing.id);
+    if (error) throw new Error(error.message);
+  }
+
+  const { error } = await supabase.from("transcript").insert({
+    org_id: params.orgId,
+    call_id: params.callId,
+    recording_id: params.recordingId,
+    provider: "manual",
+    source_format: params.format,
+    original_filename: params.filename,
+    segments: params.segments,
+    version_no: (existing?.version_no ?? 0) + 1,
+    status: "available",
+    created_by: params.personId,
+    updated_by: params.personId,
+  });
+  if (error) throw new Error(error.message);
+}
