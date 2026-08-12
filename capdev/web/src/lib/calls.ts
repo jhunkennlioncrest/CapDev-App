@@ -1,0 +1,150 @@
+import { supabase } from "./supabase";
+import type { CallListItem, UploadDraft } from "./types";
+
+export type UploadStage =
+  | { stage: "idle" }
+  | { stage: "reading" }
+  | { stage: "uploading"; percent: number }
+  | { stage: "recording" }
+  | { stage: "done" }
+  | { stage: "error"; message: string };
+
+const BUCKET = "recordings";
+
+const EXTENSION_BY_MIME: Record<string, string> = {
+  "audio/mpeg": "mp3",
+  "audio/mp3": "mp3",
+  "audio/wav": "wav",
+  "audio/x-wav": "wav",
+  "audio/mp4": "m4a",
+  "audio/m4a": "m4a",
+  "audio/x-m4a": "m4a",
+  "audio/aac": "aac",
+  "audio/ogg": "ogg",
+  "audio/webm": "webm",
+  "video/mp4": "mp4",
+  "video/webm": "webm",
+};
+
+export const ACCEPTED_EXTENSIONS = ".mp3,.wav,.m4a,.mp4,.aac,.ogg,.webm";
+export const MAX_BYTES = 500 * 1024 * 1024;
+
+function extensionFor(file: File): string {
+  const fromMime = EXTENSION_BY_MIME[file.type];
+  if (fromMime) return fromMime;
+  const fromName = file.name.split(".").pop();
+  return fromName && fromName.length <= 5 ? fromName.toLowerCase() : "bin";
+}
+
+export function validateFile(file: File): string | null {
+  if (file.size === 0) return "That file is empty.";
+  if (file.size > MAX_BYTES) return "That file is larger than 500 MB.";
+  const ext = extensionFor(file);
+  if (!ACCEPTED_EXTENSIONS.includes(ext)) {
+    return `${ext.toUpperCase()} files aren't supported. Use MP3, WAV, M4A, or MP4.`;
+  }
+  return null;
+}
+
+/**
+ * Uploads a recording and records the call.
+ *
+ * Order matters: the call row is created first so the storage path can contain
+ * its id, then the file is uploaded, then the recording row is written. If the
+ * upload fails, the call row is archived rather than deleted — nothing in this
+ * platform is hard-deleted (INV-11), and an archived orphan is both harmless
+ * and a useful trace that an upload was attempted.
+ */
+export async function uploadCall(
+  draft: UploadDraft,
+  orgId: string,
+  personId: string,
+  onProgress: (stage: UploadStage) => void,
+): Promise<string> {
+  onProgress({ stage: "reading" });
+
+  const { data: call, error: callError } = await supabase
+    .from("call")
+    .insert({
+      org_id: orgId,
+      provider: "manual",
+      title: draft.title.trim() || draft.file.name,
+      agent_name: draft.agentName.trim(),
+      customer_ref: draft.customerRef.trim(),
+      occurred_at: draft.occurredAt ? new Date(draft.occurredAt).toISOString() : null,
+      duration_ms: draft.durationMs,
+      created_by: personId,
+      updated_by: personId,
+    })
+    .select("id")
+    .single<{ id: string }>();
+
+  if (callError || !call) {
+    throw new Error(callError?.message ?? "Could not create the call record.");
+  }
+
+  const path = `${orgId}/${call.id}/${crypto.randomUUID()}.${extensionFor(draft.file)}`;
+
+  try {
+    onProgress({ stage: "uploading", percent: 0 });
+
+    const { error: storageError } = await supabase.storage
+      .from(BUCKET)
+      .upload(path, draft.file, {
+        contentType: draft.file.type || "application/octet-stream",
+        upsert: false,
+      });
+
+    if (storageError) throw new Error(storageError.message);
+
+    onProgress({ stage: "recording" });
+
+    const { error: recordingError } = await supabase.from("recording").insert({
+      org_id: orgId,
+      call_id: call.id,
+      provider: "manual",
+      custody: "platform_held",
+      storage_path: path,
+      original_filename: draft.file.name,
+      mime_type: draft.file.type || "application/octet-stream",
+      size_bytes: draft.file.size,
+      duration_ms: draft.durationMs,
+      availability: "available",
+      created_by: personId,
+      updated_by: personId,
+    });
+
+    if (recordingError) throw new Error(recordingError.message);
+
+    onProgress({ stage: "done" });
+    return call.id;
+  } catch (error) {
+    await supabase
+      .from("call")
+      .update({ archived_at: new Date().toISOString(), updated_by: personId })
+      .eq("id", call.id);
+    throw error;
+  }
+}
+
+export async function listCalls(): Promise<CallListItem[]> {
+  const { data, error } = await supabase
+    .from("v_call_list")
+    .select("*")
+    .order("created_at", { ascending: false })
+    .limit(200);
+
+  if (error) throw new Error(error.message);
+  return (data ?? []) as CallListItem[];
+}
+
+/**
+ * Short-lived signed URL. Recordings are never public — these are customer
+ * conversations, and every link expires.
+ */
+export async function signedUrlFor(path: string): Promise<string | null> {
+  const { data, error } = await supabase.storage
+    .from(BUCKET)
+    .createSignedUrl(path, 60 * 60);
+  return error ? null : (data?.signedUrl ?? null);
+}
