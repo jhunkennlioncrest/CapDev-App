@@ -1,7 +1,6 @@
 import { useRef, useState } from "react";
 import {
   ACCEPTED_EXTENSIONS,
-  requestTranscription,
   uploadCall,
   validateFile,
   type UploadStage,
@@ -48,23 +47,16 @@ export function UploadDialog({ session, onClose, onUploaded }: Props): JSX.Eleme
     }
     setError(null);
     try {
-      const callId = await uploadCall(
+      await uploadCall(
         { file, title, agentName, customerRef, occurredAt, durationMs },
         session.person.org_id,
         session.person.id,
         setStage,
       );
 
-      // Transcription starts on its own — the user never triggers it. A failure
-      // here must not undo the upload, which succeeded: the call is saved and
-      // the detail page offers a retry.
-      setStage({ stage: "transcribing" });
-      try {
-        await requestTranscription(callId);
-      } catch {
-        /* recorded on the job row; surfaced on the call */
-      }
-
+      // Transcription is NOT started here. It costs money per recording, so it
+      // is a deliberate press on the call page rather than a side effect of
+      // uploading — a mistaken upload should never incur a charge.
       onUploaded();
       onClose();
     } catch (err) {

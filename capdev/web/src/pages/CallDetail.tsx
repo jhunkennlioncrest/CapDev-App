@@ -187,7 +187,7 @@ export function CallDetail({ callId, session, onBack }: Props): JSX.Element {
         <p className="mt-5 text-[13px] text-[#96690A]">No audio attached to this call.</p>
       )}
 
-      {!transcript && job && (job.status === "running" || job.status === "queued") && (
+      {job && (job.status === "running" || job.status === "queued") && (
         <div className="mt-6 border border-rule-soft rounded bg-card px-5 py-4">
           <p className="font-display text-lg">Generating transcript&hellip;</p>
           <p className="text-[13px] text-ink-70 mt-1">
@@ -346,12 +346,43 @@ export function CallDetail({ callId, session, onBack }: Props): JSX.Element {
             )}
           </>
         ) : canUpload ? (
-          <TranscriptUploader
-            call={call}
-            session={session}
-            onSaved={() => void load()}
-            label="Add a transcript"
-          />
+          <div className="border border-dashed border-rule rounded bg-card px-8 py-12 text-center">
+            <h2 className="font-display text-2xl mb-2">No transcript yet</h2>
+            <p className="text-ink-70 max-w-md mx-auto mb-2">
+              You need a transcript before evaluating this call. Generate one
+              from the audio, or upload one exported from elsewhere.
+            </p>
+            {call.storage_path && (
+              <p className="text-[12px] text-ink-45 max-w-md mx-auto mb-5">
+                Generating uses your transcription account and is charged by the
+                minute, so it only runs when you press the button.
+              </p>
+            )}
+            <div className="flex gap-2 justify-center flex-wrap">
+              {call.storage_path && (
+                <button
+                  onClick={() => void retryTranscription()}
+                  disabled={retrying}
+                  className="bg-ink text-ground border border-ink rounded px-4 py-2 text-sm font-medium hover:opacity-85 disabled:opacity-40"
+                >
+                  {retrying
+                    ? "Starting\u2026"
+                    : `Generate transcript${
+                        call.duration_ms
+                          ? ` (${Math.max(1, Math.round(call.duration_ms / 60000))} min of audio)`
+                          : ""
+                      }`}
+                </button>
+              )}
+              <TranscriptUploader
+                call={call}
+                session={session}
+                onSaved={() => void load()}
+                label="Upload a transcript instead"
+                compact
+              />
+            </div>
+          </div>
         ) : (
           <p className="text-ink-45 text-sm">No transcript yet.</p>
         )}
@@ -473,7 +504,7 @@ function TranscriptUploader({
           onClick={() => inputRef.current?.click()}
           className={
             compact
-              ? "text-[13px] text-ink-45 underline underline-offset-2 hover:text-ink"
+              ? "border border-rule rounded px-4 py-2 text-sm hover:bg-ground-2"
               : "bg-ink text-ground border border-ink rounded px-4 py-2 text-sm font-medium hover:opacity-85"
           }
         >
