@@ -12,7 +12,11 @@ type SortKey = "recent" | "score_low" | "score_high" | "rep";
 /**
  * The Quality Repository.
  *
- * Every completed call has a permanent home here. Sorted newest-first by
+ * The workspace is named for the container, not its contents: teaching moments,
+ * case studies and knowledge articles will live here alongside evaluations. The
+ * artifact itself keeps the name analysts already use.
+ *
+ * Every completed evaluation has a permanent home here. Sorted newest-first by
  * default, but the more useful default in practice is score_low — the calls
  * worth revisiting are the ones that went badly, not the ones that went well.
  */
@@ -80,8 +84,8 @@ export function QualityRepository({ onOpenRecord, onBack }: Props): JSX.Element 
         </button>
         <h1 className="font-display text-3xl mt-3">Quality repository</h1>
         <p className="text-ink-70 text-[14px] mt-1 max-w-2xl">
-          Every completed evaluation, permanently. This is the system of record
-          &mdash; anywhere else it appears is a copy.
+          Completed evaluations, permanently. This is the system of record
+          &mdash; anywhere else they appear is a copy.
         </p>
       </header>
 
@@ -148,8 +152,8 @@ export function QualityRepository({ onOpenRecord, onBack }: Props): JSX.Element 
           <div className="border border-dashed border-rule rounded bg-card px-8 py-12 text-center">
             <h2 className="font-display text-2xl mb-2">Nothing completed yet</h2>
             <p className="text-ink-70 max-w-md mx-auto">
-              Calls arrive here once a calibration is submitted. They stay
-              permanently.
+              Completed evaluations arrive here once a calibration is submitted.
+              They stay permanently.
             </p>
           </div>
         ) : visible.length === 0 ? (
@@ -218,7 +222,7 @@ export function QualityRepository({ onOpenRecord, onBack }: Props): JSX.Element 
                     onClick={() => onOpenRecord(r.call_id)}
                     className="bg-ink text-ground border border-ink rounded px-3.5 py-1.5 text-[13px] font-medium hover:opacity-85"
                   >
-                    Open record
+                    Open evaluation
                   </button>
                 </div>
               </li>

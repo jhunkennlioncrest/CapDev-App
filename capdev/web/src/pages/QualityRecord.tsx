@@ -24,7 +24,9 @@ interface Props {
 }
 
 /**
- * The permanent quality record. Read-only by design.
+ * A completed evaluation. Read-only by design.
+ *
+ * This is the official historical record: once submitted it is never edited.
  *
  * Correcting anything here goes through supersede, which creates a successor
  * and retires the original rather than editing it — a score that informed a
@@ -124,7 +126,10 @@ export function QualityRecord({ callId, session, onBack, onOpenCall }: Props): J
         </button>
         <div className="flex justify-between items-start gap-4 flex-wrap mt-3">
           <div>
-            <h1 className="font-display text-3xl">{record.call_title}</h1>
+            <p className="font-mono text-[10px] tracking-[0.14em] uppercase text-ink-45">
+              Completed evaluation
+            </p>
+            <h1 className="font-display text-3xl mt-0.5">{record.call_title}</h1>
             <p className="text-[12px] text-ink-45 mt-1">
               {record.agent_name || "Rep not set"} &middot; reviewed by{" "}
               {record.reviewer_name ?? "—"} &middot; calibrated by {record.trainer_name ?? "—"}
@@ -413,7 +418,8 @@ export function QualityRecord({ callId, session, onBack, onOpenCall }: Props): J
               {correcting ? "Creating…" : "Correct this evaluation"}
             </button>
             <p className="text-[12px] text-ink-45 mt-1.5">
-              Creates a new version. This one is kept and stays readable.
+              Submitted evaluations are never edited. This creates a new version;
+              the current one is kept as the official record of what was decided.
             </p>
           </div>
         )}
