@@ -39,6 +39,7 @@ export function CallDetail({ callId, session, onBack }: Props): JSX.Element {
   const [savingReview, setSavingReview] = useState(false);
   const [retrying, setRetrying] = useState(false);
   const [evaluating, setEvaluating] = useState(false);
+  const clipEndRef = useRef<number | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const audioRef = useRef<HTMLAudioElement>(null);
@@ -127,9 +128,18 @@ export function CallDetail({ callId, session, onBack }: Props): JSX.Element {
 
   function seekTo(ms: number | null): void {
     if (ms === null || !audioRef.current) return;
+    clipEndRef.current = null;          // a transcript click plays on freely
     audioRef.current.currentTime = ms / 1000;
     void audioRef.current.play();
     setFollowAlong(true);
+  }
+
+  /** Plays a bounded span and stops at its end. */
+  function playClip(startMs: number, endMs: number): void {
+    if (!audioRef.current) return;
+    clipEndRef.current = endMs;
+    audioRef.current.currentTime = startMs / 1000;
+    void audioRef.current.play();
   }
 
   const segments = transcript?.segments ?? [];
@@ -194,7 +204,14 @@ export function CallDetail({ callId, session, onBack }: Props): JSX.Element {
             controls
             src={audioUrl}
             className="w-full"
-            onTimeUpdate={(e) => setCurrentMs(e.currentTarget.currentTime * 1000)}
+            onTimeUpdate={(e) => {
+              const ms = e.currentTarget.currentTime * 1000;
+              if (clipEndRef.current !== null && ms >= clipEndRef.current) {
+                e.currentTarget.pause();
+                clipEndRef.current = null;
+              }
+              setCurrentMs(ms);
+            }}
           />
         </div>
       ) : (
@@ -237,6 +254,7 @@ export function CallDetail({ callId, session, onBack }: Props): JSX.Element {
             session={session}
             transcriptId={transcript?.id ?? null}
             segments={segments}
+            onPlayClip={playClip}
             onClose={() => setEvaluating(false)}
           />
         </div>

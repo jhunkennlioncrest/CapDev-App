@@ -28,6 +28,8 @@ interface Props {
   session: Session;
   transcriptId: string | null;
   segments: Segment[];
+  /** Plays a span in the page's audio player, stopping at the end. */
+  onPlayClip?: (startMs: number, endMs: number) => void;
   onClose: () => void;
 }
 
@@ -37,6 +39,7 @@ export function EvaluationPanel({
   session,
   transcriptId,
   segments,
+  onPlayClip,
   onClose,
 }: Props): JSX.Element {
   const [rubric, setRubric] = useState<RubricVersion | null>(null);
@@ -260,6 +263,7 @@ export function EvaluationPanel({
                         onValue={(v) => void setValue(criterion, v)}
                         onRemark={(t) => setRemark(criterion, t)}
                         onCite={() => setClipFor(criterion)}
+                        onPlayClip={onPlayClip}
                         onRemoveEvidence={(id) => {
                           void removeEvidence(id)
                             .then(() => reloadEvidence(evaluation.id))
@@ -396,6 +400,7 @@ function CriterionRow({
   onValue,
   onRemark,
   onCite,
+  onPlayClip,
   onRemoveEvidence,
 }: {
   criterion: Criterion;
@@ -408,6 +413,7 @@ function CriterionRow({
   onValue: (v: ScoreValue) => void;
   onRemark: (t: string) => void;
   onCite: () => void;
+  onPlayClip?: (startMs: number, endMs: number) => void;
   onRemoveEvidence: (id: string) => void;
 }): JSX.Element {
   const [showGuidance, setShowGuidance] = useState(false);
@@ -506,9 +512,17 @@ function CriterionRow({
             >
               <div className="min-w-0">
                 <p className="font-mono text-[11px] text-ink-45">
-                  {ev.start_ms !== null && ev.end_ms !== null
-                    ? `${formatDuration(ev.start_ms)}–${formatDuration(ev.end_ms)}`
-                    : "cited"}
+                  {ev.start_ms !== null && ev.end_ms !== null ? (
+                    <button
+                      onClick={() => onPlayClip?.(ev.start_ms!, ev.end_ms!)}
+                      className="underline underline-offset-2 hover:text-ink"
+                      title="Play just this"
+                    >
+                      &#9654; {formatDuration(ev.start_ms)}&ndash;{formatDuration(ev.end_ms)}
+                    </button>
+                  ) : (
+                    "cited"
+                  )}
                   {ev.moment_id && " · also a teaching moment"}
                 </p>
                 <p className="text-[12.5px] text-ink-70 whitespace-pre-line">{ev.excerpt}</p>

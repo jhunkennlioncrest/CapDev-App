@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { supabase } from "@/lib/supabase";
 import { formatDuration, formatDate } from "@/lib/format";
 import { MOMENT_TYPES, type Moment, type MomentType } from "@/lib/moments";
@@ -277,13 +277,80 @@ function MomentCard({
       )}
 
       {url && (
-        <audio
-          controls
-          autoPlay
-          src={`${url}#t=${Math.floor(moment.start_ms / 1000)},${Math.ceil(moment.end_ms / 1000)}`}
-          className="w-full mt-3"
-        />
+        <ClipPlayer url={url} startMs={moment.start_ms} endMs={moment.end_ms} />
       )}
     </li>
+  );
+}
+
+
+/**
+ * Plays exactly the clip, not the call.
+ *
+ * The `#t=start,end` media fragment is unreliable — Safari ignores the end
+ * bound entirely and Chrome drops it on signed URLs carrying query strings.
+ * So the boundaries are enforced here: seek on load, and pause on reaching the
+ * end. Scrubbing outside the clip is pulled back rather than blocked, so the
+ * control still feels like an audio player rather than a locked box.
+ */
+function ClipPlayer({
+  url,
+  startMs,
+  endMs,
+}: {
+  url: string;
+  startMs: number;
+  endMs: number;
+}): JSX.Element {
+  const ref = useRef<HTMLAudioElement>(null);
+  const [position, setPosition] = useState(startMs);
+
+  const startSec = startMs / 1000;
+  const endSec = endMs / 1000;
+
+  useEffect(() => {
+    const audio = ref.current;
+    if (!audio) return;
+
+    const begin = (): void => {
+      audio.currentTime = startSec;
+      void audio.play();
+    };
+
+    if (audio.readyState >= 1) begin();
+    else audio.addEventListener("loadedmetadata", begin, { once: true });
+
+    return () => audio.removeEventListener("loadedmetadata", begin);
+  }, [url, startSec]);
+
+  function onTime(e: React.SyntheticEvent<HTMLAudioElement>): void {
+    const audio = e.currentTarget;
+    if (audio.currentTime >= endSec) {
+      audio.pause();
+      audio.currentTime = startSec;
+    } else if (audio.currentTime < startSec - 0.5) {
+      // Dragged before the clip — return to its start.
+      audio.currentTime = startSec;
+    }
+    setPosition(audio.currentTime * 1000);
+  }
+
+  const elapsed = Math.max(0, position - startMs);
+  const length = endMs - startMs;
+  const progress = length > 0 ? Math.min(100, (elapsed / length) * 100) : 0;
+
+  return (
+    <div className="mt-3">
+      <audio ref={ref} controls src={url} onTimeUpdate={onTime} className="w-full" />
+      <div className="flex items-center gap-2.5 mt-1.5">
+        <span className="font-mono text-[11px] text-ink-45 tabular-nums">
+          {formatDuration(elapsed)} / {formatDuration(length)}
+        </span>
+        <span className="flex-1 h-1 bg-ground-2 rounded overflow-hidden">
+          <span className="block h-full bg-ink" style={{ width: `${progress}%` }} />
+        </span>
+        <span className="font-mono text-[11px] text-ink-45">clip only</span>
+      </div>
+    </div>
   );
 }
