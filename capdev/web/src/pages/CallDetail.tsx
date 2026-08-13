@@ -235,6 +235,8 @@ export function CallDetail({ callId, session, onBack }: Props): JSX.Element {
             callId={callId}
             callTitle={call.title || "Untitled call"}
             session={session}
+            transcriptId={transcript?.id ?? null}
+            segments={segments}
             onClose={() => setEvaluating(false)}
           />
         </div>

@@ -12,15 +12,33 @@ import {
   type ScoreValue,
 } from "@/lib/evaluation";
 import type { Session } from "@/lib/types";
+import type { Segment } from "@/lib/transcript";
+import {
+  evidenceForEvaluation,
+  getScoreIds,
+  removeEvidence,
+  type Evidence,
+} from "@/lib/moments";
+import { ClipDialog } from "@/components/ClipDialog";
+import { formatDuration } from "@/lib/format";
 
 interface Props {
   callId: string;
   callTitle: string;
   session: Session;
+  transcriptId: string | null;
+  segments: Segment[];
   onClose: () => void;
 }
 
-export function EvaluationPanel({ callId, callTitle, session, onClose }: Props): JSX.Element {
+export function EvaluationPanel({
+  callId,
+  callTitle,
+  session,
+  transcriptId,
+  segments,
+  onClose,
+}: Props): JSX.Element {
   const [rubric, setRubric] = useState<RubricVersion | null>(null);
   const [evaluation, setEvaluation] = useState<Evaluation | null>(null);
   const [values, setValues] = useState<Record<string, ScoreValue | null>>({});
@@ -31,6 +49,9 @@ export function EvaluationPanel({ callId, callTitle, session, onClose }: Props):
   const [savedAt, setSavedAt] = useState<Date | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const remarkTimers = useRef<Record<string, number>>({});
+  const [scoreIds, setScoreIds] = useState<Record<string, string>>({});
+  const [evidence, setEvidence] = useState<Record<string, Evidence[]>>({});
+  const [clipFor, setClipFor] = useState<Criterion | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -49,6 +70,11 @@ export function EvaluationPanel({ callId, callTitle, session, onClose }: Props):
         setRubric(rb);
         setValues(Object.fromEntries(scores.map((s) => [s.criterion_id, s.value])));
         setRemarks(Object.fromEntries(scores.map((s) => [s.criterion_id, s.remark])));
+
+        const ids = await getScoreIds(ev.id);
+        if (cancelled) return;
+        setScoreIds(ids);
+        setEvidence(await evidenceForEvaluation(Object.values(ids)));
       } catch (err) {
         if (!cancelled) setError(err instanceof Error ? err.message : String(err));
       } finally {
@@ -68,6 +94,12 @@ export function EvaluationPanel({ callId, callTitle, session, onClose }: Props):
   const total = allCriteria.length;
   const locked = evaluation?.status === "submitted";
 
+  const reloadEvidence = useCallback(async (evId: string): Promise<void> => {
+    const ids = await getScoreIds(evId);
+    setScoreIds(ids);
+    setEvidence(await evidenceForEvaluation(Object.values(ids)));
+  }, []);
+
   const sync = useCallback(async (evId: string): Promise<void> => {
     const fresh = await refreshEvaluation(evId);
     if (fresh) setEvaluation(fresh);
@@ -83,6 +115,7 @@ export function EvaluationPanel({ callId, callTitle, session, onClose }: Props):
     try {
       await saveScore(evaluation.id, criterion.id, next, remarks[criterion.id] ?? "");
       await sync(evaluation.id);
+      await reloadEvidence(evaluation.id);
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
     }
@@ -215,8 +248,18 @@ export function EvaluationPanel({ callId, callTitle, session, onClose }: Props):
                         value={values[criterion.id] ?? null}
                         remark={remarks[criterion.id] ?? ""}
                         locked={locked}
+                        evidence={evidence[scoreIds[criterion.id] ?? ""] ?? []}
+                        canCite={!!scoreIds[criterion.id] && segments.length > 0}
                         onValue={(v) => void setValue(criterion, v)}
                         onRemark={(t) => setRemark(criterion, t)}
+                        onCite={() => setClipFor(criterion)}
+                        onRemoveEvidence={(id) => {
+                          void removeEvidence(id)
+                            .then(() => reloadEvidence(evaluation.id))
+                            .catch((err) =>
+                              setError(err instanceof Error ? err.message : String(err)),
+                            );
+                        }}
                       />
                     </div>
                   );
@@ -283,6 +326,20 @@ export function EvaluationPanel({ callId, callTitle, session, onClose }: Props):
         </div>
       </section>
 
+      {clipFor && (
+        <ClipDialog
+          session={session}
+          callId={callId}
+          transcriptId={transcriptId}
+          segments={segments}
+          scoreId={scoreIds[clipFor.id] ?? null}
+          criterion={clipFor}
+          allCriteria={allCriteria}
+          onClose={() => setClipFor(null)}
+          onSaved={() => void reloadEvidence(evaluation.id)}
+        />
+      )}
+
       <div className="border-t border-rule pt-4 flex justify-between items-center gap-4 flex-wrap">
         <div className="text-[12px] text-ink-45">
           {locked ? (
@@ -326,15 +383,23 @@ function CriterionRow({
   value,
   remark,
   locked,
+  evidence,
+  canCite,
   onValue,
   onRemark,
+  onCite,
+  onRemoveEvidence,
 }: {
   criterion: Criterion;
   value: ScoreValue | null;
   remark: string;
   locked: boolean;
+  evidence: Evidence[];
+  canCite: boolean;
   onValue: (v: ScoreValue) => void;
   onRemark: (t: string) => void;
+  onCite: () => void;
+  onRemoveEvidence: (id: string) => void;
 }): JSX.Element {
   const [showGuidance, setShowGuidance] = useState(false);
   const needsRemark = value === "no" && !remark.trim();
@@ -421,6 +486,45 @@ function CriterionRow({
             </p>
           )}
         </div>
+      )}
+
+      {evidence.length > 0 && (
+        <ul className="mt-3 space-y-1.5">
+          {evidence.map((ev) => (
+            <li
+              key={ev.id}
+              className="border-l-2 border-ink pl-3 py-1 flex justify-between items-start gap-3"
+            >
+              <div className="min-w-0">
+                <p className="font-mono text-[11px] text-ink-45">
+                  {ev.start_ms !== null && ev.end_ms !== null
+                    ? `${formatDuration(ev.start_ms)}–${formatDuration(ev.end_ms)}`
+                    : "cited"}
+                  {ev.moment_id && " · saved as a moment"}
+                </p>
+                <p className="text-[12.5px] text-ink-70 whitespace-pre-line">{ev.excerpt}</p>
+                {ev.note && <p className="text-[12.5px] mt-0.5">{ev.note}</p>}
+              </div>
+              {!locked && (
+                <button
+                  onClick={() => onRemoveEvidence(ev.id)}
+                  className="text-[11.5px] text-ink-45 underline underline-offset-2 hover:text-ink shrink-0"
+                >
+                  Remove
+                </button>
+              )}
+            </li>
+          ))}
+        </ul>
+      )}
+
+      {!locked && canCite && (
+        <button
+          onClick={onCite}
+          className="text-[12px] text-ink-45 underline underline-offset-2 hover:text-ink mt-2.5"
+        >
+          {evidence.length > 0 ? "Cite more evidence" : "Cite evidence from the transcript"}
+        </button>
       )}
     </div>
   );
