@@ -6,12 +6,14 @@ import { Dashboard } from "@/pages/Dashboard";
 import { CallDetail } from "@/pages/CallDetail";
 import { MomentLibrary } from "@/pages/MomentLibrary";
 import { CalibrationQueue } from "@/pages/CalibrationQueue";
+import { RawReviewList } from "@/pages/RawReviewList";
 
 type View =
   | { name: "calls" }
   | { name: "call"; id: string }
   | { name: "moments" }
-  | { name: "queue" };
+  | { name: "queue" }
+  | { name: "rawreviews" };
 
 export default function App(): JSX.Element {
   const state = useSession();
@@ -46,6 +48,14 @@ export default function App(): JSX.Element {
           />
         );
       }
+      if (view.name === "rawreviews") {
+        return (
+          <RawReviewList
+            onOpenCall={(id) => setView({ name: "call", id })}
+            onBack={() => setView({ name: "calls" })}
+          />
+        );
+      }
       if (view.name === "moments") {
         return (
           <MomentLibrary
@@ -60,6 +70,7 @@ export default function App(): JSX.Element {
           onOpenCall={(id) => setView({ name: "call", id })}
           onOpenMoments={() => setView({ name: "moments" })}
           onOpenQueue={() => setView({ name: "queue" })}
+          onOpenRawReviews={() => setView({ name: "rawreviews" })}
         />
       );
   }

@@ -59,7 +59,7 @@ export function CalibrationQueue({ onOpenCall, onBack }: Props): JSX.Element {
         >
           &larr; All calls
         </button>
-        <h1 className="font-display text-3xl mt-3">Calibration queue</h1>
+        <h1 className="font-display text-3xl mt-3">Ready for calibration</h1>
         <p className="text-ink-70 text-[14px] mt-1 max-w-2xl">
           Raw observations waiting to be calibrated. Everything the reviewer
           captured carries forward &mdash; timestamps, notes and quotes are already

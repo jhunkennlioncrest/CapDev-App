@@ -35,6 +35,7 @@ export interface CallListItem {
   transcript_kind: "machine" | "reviewed" | "manual" | null;
   transcription_status: "queued" | "running" | "succeeded" | "failed" | "cancelled" | null;
   transcription_error: string | null;
+  workflow_status: import("./workflow").WorkflowStatus;
 }
 
 export interface UploadDraft {

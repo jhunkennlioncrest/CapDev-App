@@ -4,12 +4,14 @@ import { listCalls, signedUrlFor } from "@/lib/calls";
 import { formatBytes, formatDate, formatDuration } from "@/lib/format";
 import { UploadDialog } from "@/components/UploadDialog";
 import type { CallListItem, Session } from "@/lib/types";
+import { StatusPill } from "@/components/CallTimeline";
 
 interface DashboardProps {
   session: Session;
   onOpenCall: (id: string) => void;
   onOpenMoments: () => void;
   onOpenQueue: () => void;
+  onOpenRawReviews: () => void;
 }
 
 export function Dashboard({
@@ -17,6 +19,7 @@ export function Dashboard({
   onOpenCall,
   onOpenMoments,
   onOpenQueue,
+  onOpenRawReviews,
 }: DashboardProps): JSX.Element {
   const [calls, setCalls] = useState<CallListItem[] | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -50,12 +53,20 @@ export function Dashboard({
           <h1 className="font-display text-4xl mt-2">Good to see you, {first}</h1>
         </div>
         <div className="flex gap-2 items-center pt-1">
+          {session.permissions.includes("raw_qa.submit") && (
+            <button
+              onClick={onOpenRawReviews}
+              className="border border-rule rounded px-3.5 py-2 text-sm hover:bg-ground-2"
+            >
+              My raw reviews
+            </button>
+          )}
           {session.permissions.includes("calibration.perform") && (
             <button
               onClick={onOpenQueue}
               className="border border-rule rounded px-3.5 py-2 text-sm hover:bg-ground-2"
             >
-              Calibration queue
+              Ready for calibration
             </button>
           )}
           <button
@@ -173,9 +184,12 @@ function CallRow({ call, onOpen }: { call: CallListItem; onOpen: () => void }): 
     <li className="bg-card border border-rule-soft rounded px-4 py-3.5">
       <div className="flex justify-between items-start gap-4 flex-wrap">
         <div className="min-w-0">
-          <button onClick={onOpen} className="font-display text-lg truncate text-left hover:underline underline-offset-2">
-            {call.title || "Untitled call"}
-          </button>
+          <div className="flex items-baseline gap-2.5 flex-wrap">
+            <button onClick={onOpen} className="font-display text-lg truncate text-left hover:underline underline-offset-2">
+              {call.title || "Untitled call"}
+            </button>
+            <StatusPill status={call.workflow_status} />
+          </div>
           <p className="text-[12px] text-ink-45 mt-0.5">
             {call.agent_name || "Rep not set"} &middot; {call.customer_ref || "No reference"} &middot;{" "}
             {formatDate(call.occurred_at ?? call.created_at)}

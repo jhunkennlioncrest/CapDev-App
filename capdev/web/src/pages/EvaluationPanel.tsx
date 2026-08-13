@@ -31,6 +31,9 @@ interface Props {
   segments: Segment[];
   /** Plays a span in the page's audio player, stopping at the end. */
   onPlayClip?: (startMs: number, endMs: number) => void;
+  /** Solo mode: offered after a raw submit when the same person may calibrate. */
+  onStartCalibration?: () => void;
+  canCalibrate?: boolean;
   /** "raw" = Workspace A: observe only, no determination, no score shown. */
   mode?: "raw" | "calibrated";
   onClose: () => void;
@@ -44,6 +47,8 @@ export function EvaluationPanel({
   segments,
   onPlayClip,
   mode = "calibrated",
+  onStartCalibration,
+  canCalibrate = false,
   onClose,
 }: Props): JSX.Element {
   const [rubric, setRubric] = useState<RubricVersion | null>(null);
@@ -388,6 +393,22 @@ export function EvaluationPanel({
         </section>
       )}
 
+      {locked && isRaw && canCalibrate && onStartCalibration && (
+        <div className="border border-rule-soft rounded bg-card px-5 py-4 mb-5">
+          <p className="font-display text-lg">Raw observations submitted</p>
+          <p className="text-[13px] text-ink-70 mt-1">
+            Everything you recorded &mdash; answers, notes and quotes &mdash; carries
+            straight into calibration. Nothing needs re-entering.
+          </p>
+          <button
+            onClick={onStartCalibration}
+            className="mt-3 bg-ink text-ground border border-ink rounded px-4 py-2 text-sm font-medium hover:opacity-85"
+          >
+            Start calibration
+          </button>
+        </div>
+      )}
+
       {clipFor && (
         <ClipDialog
           session={session}
@@ -406,7 +427,7 @@ export function EvaluationPanel({
       <div className="border-t border-rule pt-4 flex justify-between items-center gap-4 flex-wrap">
         <div className="text-[12px] text-ink-45">
           {locked ? (
-            <>Submitted. This evaluation can no longer be changed.</>
+            <>Submitted. This can no longer be changed.</>
           ) : savedAt ? (
             <>Saved automatically at {savedAt.toLocaleTimeString()}</>
           ) : (
@@ -470,6 +491,9 @@ function CriterionRow({
   onRemark: (t: string) => void;
   onCite: () => void;
   onPlayClip?: (startMs: number, endMs: number) => void;
+  /** Solo mode: offered after a raw submit when the same person may calibrate. */
+  onStartCalibration?: () => void;
+  canCalibrate?: boolean;
   onRemoveEvidence: (id: string) => void;
 }): JSX.Element {
   const [showGuidance, setShowGuidance] = useState(false);

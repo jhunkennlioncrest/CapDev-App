@@ -22,6 +22,8 @@ import {
 import { formatDuration, formatDate } from "@/lib/format";
 import { EvaluationPanel } from "@/pages/EvaluationPanel";
 import { workspaceFor } from "@/lib/evaluation";
+import { startDirectCalibration } from "@/lib/workflow";
+import { CallTimeline } from "@/components/CallTimeline";
 
 interface Props {
   callId: string;
@@ -40,6 +42,7 @@ export function CallDetail({ callId, session, onBack }: Props): JSX.Element {
   const [savingReview, setSavingReview] = useState(false);
   const [retrying, setRetrying] = useState(false);
   const [evaluating, setEvaluating] = useState(false);
+  const [forceCalibrate, setForceCalibrate] = useState(false);
   const clipEndRef = useRef<number | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
@@ -136,6 +139,17 @@ export function CallDetail({ callId, session, onBack }: Props): JSX.Element {
     setFollowAlong(true);
   }
 
+  async function beginDirect(): Promise<void> {
+    try {
+      await startDirectCalibration(callId);
+      setForceCalibrate(true);
+      setEvaluating(true);
+      await load();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    }
+  }
+
   /** Plays a bounded span and stops at its end. */
   function playClip(startMs: number, endMs: number): void {
     if (!audioRef.current) return;
@@ -180,14 +194,28 @@ export function CallDetail({ callId, session, onBack }: Props): JSX.Element {
         <div className="flex justify-between items-start gap-4 flex-wrap mt-3">
           <h1 className="font-display text-3xl">{call.title || "Untitled call"}</h1>
           {!evaluating && (
-            <button
-              onClick={() => setEvaluating(true)}
-              disabled={!transcript}
-              title={transcript ? undefined : "Add a transcript first"}
-              className="bg-ink text-ground border border-ink rounded px-4 py-2 text-sm font-medium hover:opacity-85 disabled:opacity-40"
-            >
-              {workspace === "raw" ? "Record observations" : "Evaluate this call"}
-            </button>
+            <div className="flex gap-2 flex-wrap">
+              {workspace === "calibration" &&
+                call.workflow_status !== "completed" &&
+                call.workflow_status !== "calibration_in_progress" && (
+                  <button
+                    onClick={() => void beginDirect()}
+                    disabled={!transcript}
+                    title="Calibrate now, with or without a raw review"
+                    className="border border-rule rounded px-4 py-2 text-sm hover:bg-ground-2 disabled:opacity-40"
+                  >
+                    Calibrate directly
+                  </button>
+                )}
+              <button
+                onClick={() => setEvaluating(true)}
+                disabled={!transcript}
+                title={transcript ? undefined : "Add a transcript first"}
+                className="bg-ink text-ground border border-ink rounded px-4 py-2 text-sm font-medium hover:opacity-85 disabled:opacity-40"
+              >
+                {workspace === "raw" ? "Record observations" : "Evaluate this call"}
+              </button>
+            </div>
           )}
         </div>
         <p className="text-[12px] text-ink-45 mt-1">
@@ -196,6 +224,10 @@ export function CallDetail({ callId, session, onBack }: Props): JSX.Element {
           <span className="font-mono">{formatDuration(call.duration_ms)}</span>
         </p>
       </header>
+
+      <div className="pt-3 pb-1">
+        <CallTimeline status={call.workflow_status} />
+      </div>
 
       {error && <p className="mt-5 text-[13px] text-[#AC3A2A]">{error}</p>}
 
@@ -257,7 +289,9 @@ export function CallDetail({ callId, session, onBack }: Props): JSX.Element {
             transcriptId={transcript?.id ?? null}
             segments={segments}
             onPlayClip={playClip}
-            mode={workspace === "raw" ? "raw" : "calibrated"}
+            mode={workspace === "raw" && !forceCalibrate ? "raw" : "calibrated"}
+            canCalibrate={session.permissions.includes("calibration.perform")}
+            onStartCalibration={() => void beginDirect()}
             onClose={() => setEvaluating(false)}
           />
         </div>
