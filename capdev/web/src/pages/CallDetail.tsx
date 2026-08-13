@@ -20,6 +20,7 @@ import {
   type Segment,
 } from "@/lib/transcript";
 import { formatDuration, formatDate } from "@/lib/format";
+import { EvaluationPanel } from "@/pages/EvaluationPanel";
 
 interface Props {
   callId: string;
@@ -37,6 +38,7 @@ export function CallDetail({ callId, session, onBack }: Props): JSX.Element {
   const [draft, setDraft] = useState<Segment[]>([]);
   const [savingReview, setSavingReview] = useState(false);
   const [retrying, setRetrying] = useState(false);
+  const [evaluating, setEvaluating] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const audioRef = useRef<HTMLAudioElement>(null);
@@ -163,7 +165,19 @@ export function CallDetail({ callId, session, onBack }: Props): JSX.Element {
         <button onClick={onBack} className="text-[13px] text-ink-45 hover:text-ink underline underline-offset-2">
           &larr; All calls
         </button>
-        <h1 className="font-display text-3xl mt-3">{call.title || "Untitled call"}</h1>
+        <div className="flex justify-between items-start gap-4 flex-wrap mt-3">
+          <h1 className="font-display text-3xl">{call.title || "Untitled call"}</h1>
+          {!evaluating && (
+            <button
+              onClick={() => setEvaluating(true)}
+              disabled={!transcript}
+              title={transcript ? undefined : "Add a transcript first"}
+              className="bg-ink text-ground border border-ink rounded px-4 py-2 text-sm font-medium hover:opacity-85 disabled:opacity-40"
+            >
+              Evaluate this call
+            </button>
+          )}
+        </div>
         <p className="text-[12px] text-ink-45 mt-1">
           {call.agent_name || "Rep not set"} &middot; {call.customer_ref || "No reference"} &middot;{" "}
           {formatDate(call.occurred_at ?? call.created_at)} &middot;{" "}
@@ -215,7 +229,18 @@ export function CallDetail({ callId, session, onBack }: Props): JSX.Element {
         </div>
       )}
 
-      <div className="mt-6">
+      {evaluating && (
+        <div className="mt-6">
+          <EvaluationPanel
+            callId={callId}
+            callTitle={call.title || "Untitled call"}
+            session={session}
+            onClose={() => setEvaluating(false)}
+          />
+        </div>
+      )}
+
+      <div className={evaluating ? "hidden" : "mt-6"}>
         {transcript ? (
           <>
             <div className="flex justify-between items-baseline gap-4 mb-3 flex-wrap">
