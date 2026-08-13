@@ -231,7 +231,13 @@ export function EvaluationPanel({
             {!isCollapsed && (
               <>
                 {section.description && (
-                  <p className="text-[13px] text-ink-70 mb-4 max-w-2xl">{section.description}</p>
+                  <p className="text-[13px] text-ink-70 mb-2 max-w-2xl">{section.description}</p>
+                )}
+                {section.sort_order === 1 && segments.length > 0 && (
+                  <p className="text-[13px] text-ink-45 mb-4 max-w-2xl">
+                    After you answer an item, you can quote the lines from the
+                    transcript that show it &mdash; that quote is what a coach reads later.
+                  </p>
                 )}
                 {section.criteria.map((criterion, idx) => {
                   const prevStage = idx > 0 ? section.criteria[idx - 1]?.stage : undefined;
@@ -250,6 +256,7 @@ export function EvaluationPanel({
                         locked={locked}
                         evidence={evidence[scoreIds[criterion.id] ?? ""] ?? []}
                         canCite={!!scoreIds[criterion.id] && segments.length > 0}
+                        hasTranscript={segments.length > 0}
                         onValue={(v) => void setValue(criterion, v)}
                         onRemark={(t) => setRemark(criterion, t)}
                         onCite={() => setClipFor(criterion)}
@@ -385,6 +392,7 @@ function CriterionRow({
   locked,
   evidence,
   canCite,
+  hasTranscript,
   onValue,
   onRemark,
   onCite,
@@ -396,6 +404,7 @@ function CriterionRow({
   locked: boolean;
   evidence: Evidence[];
   canCite: boolean;
+  hasTranscript: boolean;
   onValue: (v: ScoreValue) => void;
   onRemark: (t: string) => void;
   onCite: () => void;
@@ -500,7 +509,7 @@ function CriterionRow({
                   {ev.start_ms !== null && ev.end_ms !== null
                     ? `${formatDuration(ev.start_ms)}–${formatDuration(ev.end_ms)}`
                     : "cited"}
-                  {ev.moment_id && " · saved as a moment"}
+                  {ev.moment_id && " · also a teaching moment"}
                 </p>
                 <p className="text-[12.5px] text-ink-70 whitespace-pre-line">{ev.excerpt}</p>
                 {ev.note && <p className="text-[12.5px] mt-0.5">{ev.note}</p>}
@@ -518,13 +527,32 @@ function CriterionRow({
         </ul>
       )}
 
-      {!locked && canCite && (
-        <button
-          onClick={onCite}
-          className="text-[12px] text-ink-45 underline underline-offset-2 hover:text-ink mt-2.5"
-        >
-          {evidence.length > 0 ? "Cite more evidence" : "Cite evidence from the transcript"}
-        </button>
+      {!locked && hasTranscript && (
+        <div className="mt-3 pt-3 border-t border-rule-soft flex items-center gap-3 flex-wrap">
+          {canCite ? (
+            <button
+              onClick={onCite}
+              className="border border-rule rounded px-3 py-1.5 text-[12.5px] hover:bg-ground-2 flex items-center gap-1.5"
+            >
+              <span aria-hidden>&#9633;</span>
+              {evidence.length > 0 ? "Quote another line" : "Quote from transcript"}
+            </button>
+          ) : (
+            <span className="text-[12px] text-ink-45">
+              Answer this item to quote the transcript
+            </span>
+          )}
+
+          {evidence.length === 0 && canCite && (
+            <span className="text-[12px] text-ink-45">
+              {value === "no"
+                ? "A quote makes this coachable."
+                : value === "yes"
+                  ? "Worth quoting if this was well handled."
+                  : ""}
+            </span>
+          )}
+        </div>
       )}
     </div>
   );

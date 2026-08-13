@@ -4,10 +4,16 @@ import { SignIn } from "@/pages/SignIn";
 import { NoAccess } from "@/pages/NoAccess";
 import { Dashboard } from "@/pages/Dashboard";
 import { CallDetail } from "@/pages/CallDetail";
+import { MomentLibrary } from "@/pages/MomentLibrary";
+
+type View =
+  | { name: "calls" }
+  | { name: "call"; id: string }
+  | { name: "moments" };
 
 export default function App(): JSX.Element {
   const state = useSession();
-  const [openCallId, setOpenCallId] = useState<string | null>(null);
+  const [view, setView] = useState<View>({ name: "calls" });
 
   switch (state.status) {
     case "loading":
@@ -21,14 +27,29 @@ export default function App(): JSX.Element {
     case "no-access":
       return <NoAccess email={state.email} />;
     case "signed-in":
-      return openCallId ? (
-        <CallDetail
-          callId={openCallId}
+      if (view.name === "call") {
+        return (
+          <CallDetail
+            callId={view.id}
+            session={state.session}
+            onBack={() => setView({ name: "calls" })}
+          />
+        );
+      }
+      if (view.name === "moments") {
+        return (
+          <MomentLibrary
+            onOpenCall={(id) => setView({ name: "call", id })}
+            onBack={() => setView({ name: "calls" })}
+          />
+        );
+      }
+      return (
+        <Dashboard
           session={state.session}
-          onBack={() => setOpenCallId(null)}
+          onOpenCall={(id) => setView({ name: "call", id })}
+          onOpenMoments={() => setView({ name: "moments" })}
         />
-      ) : (
-        <Dashboard session={state.session} onOpenCall={setOpenCallId} />
       );
   }
 }

@@ -8,9 +8,10 @@ import type { CallListItem, Session } from "@/lib/types";
 interface DashboardProps {
   session: Session;
   onOpenCall: (id: string) => void;
+  onOpenMoments: () => void;
 }
 
-export function Dashboard({ session, onOpenCall }: DashboardProps): JSX.Element {
+export function Dashboard({ session, onOpenCall, onOpenMoments }: DashboardProps): JSX.Element {
   const [calls, setCalls] = useState<CallListItem[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [uploading, setUploading] = useState(false);
@@ -43,6 +44,12 @@ export function Dashboard({ session, onOpenCall }: DashboardProps): JSX.Element 
           <h1 className="font-display text-4xl mt-2">Good to see you, {first}</h1>
         </div>
         <div className="flex gap-2 items-center pt-1">
+          <button
+            onClick={onOpenMoments}
+            className="border border-rule rounded px-3.5 py-2 text-sm hover:bg-ground-2"
+          >
+            Moments
+          </button>
           {canUpload && (
             <button
               onClick={() => setUploading(true)}

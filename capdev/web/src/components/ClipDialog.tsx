@@ -169,9 +169,12 @@ export function ClipDialog({
         <div className="px-6 py-4 overflow-auto flex-1">
           {error && <p className="text-[13px] text-[#AC3A2A] mb-3">{error}</p>}
 
-          <p className="text-[13px] text-ink-70 mb-2">
-            Click the lines that show it. Shift-click to select a run.
-          </p>
+          <div className="mb-3">
+            <p className="text-[13px] text-ink-70">
+              <span className="font-semibold">Step 1.</span> Click the lines that show
+              it. Shift-click to select a run.
+            </p>
+          </div>
 
           <ul className="border border-rule-soft rounded divide-y divide-rule-soft max-h-64 overflow-auto mb-4">
             {segments.map((seg, i) => {
@@ -211,7 +214,8 @@ export function ClipDialog({
 
           <label className="block mb-4">
             <span className="block text-[12px] font-semibold mb-1.5">
-              Note <span className="font-normal text-ink-45">— why this matters</span>
+              <span className="font-semibold">Step 2.</span> Note{" "}
+              <span className="font-normal text-ink-45">— why this matters</span>
             </span>
             <textarea
               value={note}
@@ -222,24 +226,26 @@ export function ClipDialog({
             />
           </label>
 
-          <label className="flex items-start gap-2.5 mb-1">
-            <input
-              type="checkbox"
-              checked={alsoMoment}
-              onChange={(e) => setAlsoMoment(e.target.checked)}
-              className="mt-1"
-            />
-            <span className="text-[13px]">
-              <span className="font-semibold">Also save as a teaching moment</span>
-              <span className="text-ink-45">
-                {" "}
-                — reusable in coaching, not just proof for this score
+          <div className="border border-rule-soft rounded bg-ground px-4 py-3">
+            <label className="flex items-start gap-2.5">
+              <input
+                type="checkbox"
+                checked={alsoMoment}
+                onChange={(e) => setAlsoMoment(e.target.checked)}
+                className="mt-1"
+              />
+              <span className="text-[13px]">
+                <span className="font-semibold">Step 3 (optional). Also save as a teaching moment</span>
+                <span className="block text-ink-45 mt-0.5">
+                  Quotes stay with this evaluation. A teaching moment goes into the
+                  library, where it can be reused for coaching any rep.
+                </span>
               </span>
-            </span>
-          </label>
+            </label>
+          </div>
 
           {alsoMoment && (
-            <div className="mt-3 border-l-2 border-rule pl-4 space-y-3">
+            <div className="mt-3 border-l-2 border-ink pl-4 space-y-3">
               <label className="block">
                 <span className="block text-[12px] font-semibold mb-1.5">
                   What happens here{" "}
