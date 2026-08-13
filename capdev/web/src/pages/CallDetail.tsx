@@ -1,5 +1,14 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { getCall, getTranscript, saveTranscript, signedUrlFor } from "@/lib/calls";
+import {
+  getCall,
+  getTranscript,
+  latestJob,
+  requestTranscription,
+  saveReviewedTranscript,
+  saveTranscript,
+  signedUrlFor,
+} from "@/lib/calls";
+import type { TranscriptionJob } from "@/lib/calls";
 import type { CallListItem, Session } from "@/lib/types";
 import type { StoredTranscript } from "@/lib/calls";
 import {
@@ -8,6 +17,7 @@ import {
   parseTranscript,
   TranscriptParseError,
   type ParseResult,
+  type Segment,
 } from "@/lib/transcript";
 import { formatDuration, formatDate } from "@/lib/format";
 
@@ -22,6 +32,11 @@ export function CallDetail({ callId, session, onBack }: Props): JSX.Element {
   const [transcript, setTranscript] = useState<StoredTranscript | null>(null);
   const [audioUrl, setAudioUrl] = useState<string | null>(null);
   const [currentMs, setCurrentMs] = useState(0);
+  const [job, setJob] = useState<TranscriptionJob | null>(null);
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState<Segment[]>([]);
+  const [savingReview, setSavingReview] = useState(false);
+  const [retrying, setRetrying] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const audioRef = useRef<HTMLAudioElement>(null);
@@ -32,9 +47,14 @@ export function CallDetail({ callId, session, onBack }: Props): JSX.Element {
 
   const load = useCallback(async (): Promise<void> => {
     try {
-      const [c, t] = await Promise.all([getCall(callId), getTranscript(callId)]);
+      const [c, t, j] = await Promise.all([
+        getCall(callId),
+        getTranscript(callId),
+        latestJob(callId),
+      ]);
       setCall(c);
       setTranscript(t);
+      setJob(j);
       if (c?.storage_path) setAudioUrl(await signedUrlFor(c.storage_path));
       setError(null);
     } catch (err) {
@@ -48,12 +68,60 @@ export function CallDetail({ callId, session, onBack }: Props): JSX.Element {
     void load();
   }, [load]);
 
+  // While a transcription is in flight, poll until it settles. Cheap at this
+  // volume and simpler than a realtime subscription.
+  useEffect(() => {
+    if (job?.status !== "running" && job?.status !== "queued") return;
+    const timer = setInterval(() => void load(), 4000);
+    return () => clearInterval(timer);
+  }, [job?.status, load]);
+
   // Keep the playing line in view, unless the reader has taken over scrolling.
   useEffect(() => {
     if (followAlong) {
       activeRef.current?.scrollIntoView({ block: "center", behavior: "smooth" });
     }
   }, [currentMs, followAlong]);
+
+  async function retryTranscription(): Promise<void> {
+    setRetrying(true);
+    setError(null);
+    try {
+      await requestTranscription(callId);
+      await load();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setRetrying(false);
+    }
+  }
+
+  function startReview(): void {
+    if (!transcript) return;
+    setDraft(transcript.segments.map((s) => ({ ...s })));
+    setEditing(true);
+  }
+
+  async function saveReview(): Promise<void> {
+    if (!transcript) return;
+    setSavingReview(true);
+    setError(null);
+    try {
+      await saveReviewedTranscript({
+        source: transcript,
+        segments: draft,
+        orgId: session.person.org_id,
+        personId: session.person.id,
+        callId,
+      });
+      setEditing(false);
+      await load();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setSavingReview(false);
+    }
+  }
 
   function seekTo(ms: number | null): void {
     if (ms === null || !audioRef.current) return;
@@ -119,27 +187,128 @@ export function CallDetail({ callId, session, onBack }: Props): JSX.Element {
         <p className="mt-5 text-[13px] text-[#96690A]">No audio attached to this call.</p>
       )}
 
+      {!transcript && job && (job.status === "running" || job.status === "queued") && (
+        <div className="mt-6 border border-rule-soft rounded bg-card px-5 py-4">
+          <p className="font-display text-lg">Generating transcript&hellip;</p>
+          <p className="text-[13px] text-ink-70 mt-1">
+            This usually takes under a minute. You can leave this page and come back.
+          </p>
+        </div>
+      )}
+
+      {job?.status === "failed" && (
+        <div className="mt-6 border border-rule-soft rounded bg-card px-5 py-4">
+          <p className="font-display text-lg">Transcription didn&rsquo;t finish</p>
+          <p className="text-[13px] text-ink-70 mt-1">{job.error_message}</p>
+          <p className="text-[13px] text-ink-70 mt-2">
+            The recording is safe. Try again, or upload a transcript yourself.
+          </p>
+          {canUpload && (
+            <button
+              onClick={() => void retryTranscription()}
+              disabled={retrying}
+              className="mt-3 border border-rule rounded px-3.5 py-1.5 text-[13px] hover:bg-ground-2 disabled:opacity-40"
+            >
+              {retrying ? "Retrying\u2026" : "Retry transcription"}
+            </button>
+          )}
+        </div>
+      )}
+
       <div className="mt-6">
         {transcript ? (
           <>
             <div className="flex justify-between items-baseline gap-4 mb-3 flex-wrap">
               <p className="font-mono text-[10px] tracking-[0.14em] uppercase text-ink-45">
                 Transcript &middot; {transcript.segment_count} lines &middot;{" "}
-                {transcript.source_format.toUpperCase()}
+                {transcript.kind === "machine"
+                  ? "as transcribed"
+                  : transcript.kind === "reviewed"
+                    ? "reviewed"
+                    : "uploaded"}
                 {transcript.version_no > 1 && ` · v${transcript.version_no}`}
               </p>
-              {!transcript.has_timing && (
-                <span className="text-[12px] text-[#96690A]">
-                  No timecodes &mdash; lines can&rsquo;t be clicked
-                </span>
-              )}
+              <div className="flex items-center gap-3">
+                {!transcript.has_timing && (
+                  <span className="text-[12px] text-[#96690A]">
+                    No timecodes &mdash; lines can&rsquo;t be clicked
+                  </span>
+                )}
+                {canUpload && !editing && (
+                  <button
+                    onClick={startReview}
+                    className="border border-rule rounded px-3 py-1.5 text-[13px] hover:bg-ground-2"
+                  >
+                    Review &amp; correct
+                  </button>
+                )}
+              </div>
             </div>
+
+            {transcript.kind === "machine" && !editing && (
+              <p className="text-[12px] text-ink-45 mb-3">
+                Machine transcript. Correcting names or terminology saves a reviewed
+                copy &mdash; this original is kept as it arrived.
+              </p>
+            )}
+
+            {editing && (
+              <div className="mb-3 border border-rule-soft rounded bg-card px-4 py-3 flex justify-between items-center gap-3 flex-wrap">
+                <p className="text-[13px] text-ink-70">
+                  Fix names, companies, and product terms. Timecodes stay as they are.
+                </p>
+                <div className="flex gap-2">
+                  <button
+                    onClick={() => setEditing(false)}
+                    disabled={savingReview}
+                    className="border border-rule rounded px-3 py-1.5 text-[13px] hover:bg-ground-2"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    onClick={() => void saveReview()}
+                    disabled={savingReview}
+                    className="bg-ink text-ground border border-ink rounded px-3.5 py-1.5 text-[13px] font-medium hover:opacity-85 disabled:opacity-40"
+                  >
+                    {savingReview ? "Saving\u2026" : "Save reviewed transcript"}
+                  </button>
+                </div>
+              </div>
+            )}
 
             <ul
               className="bg-card border border-rule-soft rounded divide-y divide-rule-soft max-h-[60vh] overflow-auto"
               onWheel={() => setFollowAlong(false)}
             >
-              {segments.map((seg, i) => {
+              {editing
+                ? draft.map((seg, i) => (
+                    <li key={seg.i} className="px-4 py-2 flex gap-3 items-start">
+                      <span className="font-mono text-[11px] text-ink-45 w-14 shrink-0 pt-2 tabular-nums">
+                        {seg.start_ms === null ? "\u2014" : formatDuration(seg.start_ms)}
+                      </span>
+                      <input
+                        value={seg.speaker ?? ""}
+                        onChange={(e) => {
+                          const next = [...draft];
+                          next[i] = { ...seg, speaker: e.target.value || null };
+                          setDraft(next);
+                        }}
+                        placeholder="Speaker"
+                        className="w-24 shrink-0 border border-rule rounded px-2 py-1 text-[13px] bg-white"
+                      />
+                      <textarea
+                        value={seg.text}
+                        onChange={(e) => {
+                          const next = [...draft];
+                          next[i] = { ...seg, text: e.target.value };
+                          setDraft(next);
+                        }}
+                        rows={Math.max(1, Math.ceil(seg.text.length / 90))}
+                        className="flex-1 border border-rule rounded px-2 py-1 text-[14px] bg-white resize-y"
+                      />
+                    </li>
+                  ))
+                : segments.map((seg, i) => {
                 const active = i === activeIndex;
                 return (
                   <li

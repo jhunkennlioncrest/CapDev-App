@@ -6,6 +6,7 @@ export type UploadStage =
   | { stage: "reading" }
   | { stage: "uploading"; percent: number }
   | { stage: "recording" }
+  | { stage: "transcribing" }
   | { stage: "done" }
   | { stage: "error"; message: string };
 
@@ -164,6 +165,9 @@ export interface StoredTranscript {
   speaker_count: number;
   version_no: number;
   created_at: string;
+  kind: "machine" | "reviewed" | "manual";
+  supersedes_id: string | null;
+  provider: string;
 }
 
 export async function getCall(callId: string): Promise<CallListItem | null> {
@@ -179,7 +183,7 @@ export async function getCall(callId: string): Promise<CallListItem | null> {
 export async function getTranscript(callId: string): Promise<StoredTranscript | null> {
   const { data, error } = await supabase
     .from("transcript")
-    .select("id, call_id, source_format, original_filename, segments, segment_count, has_timing, speaker_count, version_no, created_at")
+    .select("id, call_id, source_format, original_filename, segments, segment_count, has_timing, speaker_count, version_no, created_at, kind, supersedes_id, provider")
     .eq("call_id", callId)
     .is("archived_at", null)
     .eq("status", "available")
@@ -224,6 +228,97 @@ export async function saveTranscript(params: {
     segments: params.segments,
     version_no: (existing?.version_no ?? 0) + 1,
     status: "available",
+    created_by: params.personId,
+    updated_by: params.personId,
+  });
+  if (error) throw new Error(error.message);
+}
+
+// ---- transcription -------------------------------------------------------
+
+export interface TranscriptionJob {
+  id: string;
+  status: "queued" | "running" | "succeeded" | "failed" | "cancelled";
+  error_message: string | null;
+  attempt: number;
+  requested_at: string;
+}
+
+/**
+ * Asks the backend to transcribe a call.
+ *
+ * The provider is deliberately not named here — this calls our own endpoint,
+ * which holds the credentials and could be pointed at a different provider
+ * without changing a line of this file (INV-62).
+ */
+export async function requestTranscription(callId: string): Promise<void> {
+  const { data, error } = await supabase.functions.invoke("transcribe", {
+    body: { callId },
+  });
+  if (error) {
+    // Surface the function's own message where it gave one.
+    const detail =
+      (data as { error?: string } | null)?.error ??
+      (error as { message?: string }).message ??
+      "Transcription failed.";
+    throw new Error(detail);
+  }
+  if ((data as { error?: string } | null)?.error) {
+    throw new Error((data as { error: string }).error);
+  }
+}
+
+export async function latestJob(callId: string): Promise<TranscriptionJob | null> {
+  const { data } = await supabase
+    .from("transcription_job")
+    .select("id, status, error_message, attempt, requested_at")
+    .eq("call_id", callId)
+    .order("requested_at", { ascending: false })
+    .limit(1)
+    .maybeSingle<TranscriptionJob>();
+  return data;
+}
+
+/**
+ * Saves human corrections as a NEW reviewed transcript.
+ *
+ * The machine original is never modified — a database trigger enforces that,
+ * and this is the approved traceability rule: the provider's output stays
+ * exactly as it arrived.
+ */
+export async function saveReviewedTranscript(params: {
+  source: StoredTranscript;
+  segments: Segment[];
+  orgId: string;
+  personId: string;
+  callId: string;
+}): Promise<void> {
+  if (params.source.kind === "reviewed") {
+    const { error } = await supabase
+      .from("transcript")
+      .update({
+        segments: params.segments,
+        reviewed_at: new Date().toISOString(),
+        reviewed_by: params.personId,
+        updated_by: params.personId,
+      })
+      .eq("id", params.source.id);
+    if (error) throw new Error(error.message);
+    return;
+  }
+
+  const { error } = await supabase.from("transcript").insert({
+    org_id: params.orgId,
+    call_id: params.callId,
+    kind: "reviewed",
+    provider: "manual",
+    source_format: params.source.source_format,
+    segments: params.segments,
+    version_no: params.source.version_no + 1,
+    supersedes_id: params.source.id,
+    status: "available",
+    reviewed_at: new Date().toISOString(),
+    reviewed_by: params.personId,
     created_by: params.personId,
     updated_by: params.personId,
   });

@@ -32,6 +32,9 @@ export interface CallListItem {
   transcript_id: string | null;
   segment_count: number;
   has_timing: boolean;
+  transcript_kind: "machine" | "reviewed" | "manual" | null;
+  transcription_status: "queued" | "running" | "succeeded" | "failed" | "cancelled" | null;
+  transcription_error: string | null;
 }
 
 export interface UploadDraft {
