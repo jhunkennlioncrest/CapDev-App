@@ -20,6 +20,8 @@ interface Props {
   scoreId?: string | null;
   criterion?: Criterion | null;
   allCriteria: Criterion[];
+  /** Raw reviewers cite evidence but do not create teaching moments. */
+  allowMoment?: boolean;
   onClose: () => void;
   onSaved: () => void;
 }
@@ -40,6 +42,7 @@ export function ClipDialog({
   scoreId,
   criterion,
   allCriteria,
+  allowMoment = true,
   onClose,
   onSaved,
 }: Props): JSX.Element {
@@ -226,6 +229,7 @@ export function ClipDialog({
             />
           </label>
 
+          {allowMoment && (
           <div className="border border-rule-soft rounded bg-ground px-4 py-3">
             <label className="flex items-start gap-2.5">
               <input
@@ -243,8 +247,9 @@ export function ClipDialog({
               </span>
             </label>
           </div>
+          )}
 
-          {alsoMoment && (
+          {allowMoment && alsoMoment && (
             <div className="mt-3 border-l-2 border-ink pl-4 space-y-3">
               <label className="block">
                 <span className="block text-[12px] font-semibold mb-1.5">

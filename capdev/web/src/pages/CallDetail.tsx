@@ -21,6 +21,7 @@ import {
 } from "@/lib/transcript";
 import { formatDuration, formatDate } from "@/lib/format";
 import { EvaluationPanel } from "@/pages/EvaluationPanel";
+import { workspaceFor } from "@/lib/evaluation";
 
 interface Props {
   callId: string;
@@ -47,6 +48,7 @@ export function CallDetail({ callId, session, onBack }: Props): JSX.Element {
   const [followAlong, setFollowAlong] = useState(true);
 
   const canUpload = session.permissions.includes("call.upload");
+  const workspace = workspaceFor(session.permissions);
 
   const load = useCallback(async (): Promise<void> => {
     try {
@@ -184,7 +186,7 @@ export function CallDetail({ callId, session, onBack }: Props): JSX.Element {
               title={transcript ? undefined : "Add a transcript first"}
               className="bg-ink text-ground border border-ink rounded px-4 py-2 text-sm font-medium hover:opacity-85 disabled:opacity-40"
             >
-              Evaluate this call
+              {workspace === "raw" ? "Record observations" : "Evaluate this call"}
             </button>
           )}
         </div>
@@ -255,6 +257,7 @@ export function CallDetail({ callId, session, onBack }: Props): JSX.Element {
             transcriptId={transcript?.id ?? null}
             segments={segments}
             onPlayClip={playClip}
+            mode={workspace === "raw" ? "raw" : "calibrated"}
             onClose={() => setEvaluating(false)}
           />
         </div>

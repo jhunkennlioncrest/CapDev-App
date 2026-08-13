@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   getScores,
   openEvaluation,
+  openRawSubmission,
   refreshEvaluation,
   saveScore,
   submitEvaluation,
@@ -30,6 +31,8 @@ interface Props {
   segments: Segment[];
   /** Plays a span in the page's audio player, stopping at the end. */
   onPlayClip?: (startMs: number, endMs: number) => void;
+  /** "raw" = Workspace A: observe only, no determination, no score shown. */
+  mode?: "raw" | "calibrated";
   onClose: () => void;
 }
 
@@ -40,6 +43,7 @@ export function EvaluationPanel({
   transcriptId,
   segments,
   onPlayClip,
+  mode = "calibrated",
   onClose,
 }: Props): JSX.Element {
   const [rubric, setRubric] = useState<RubricVersion | null>(null);
@@ -55,16 +59,16 @@ export function EvaluationPanel({
   const [scoreIds, setScoreIds] = useState<Record<string, string>>({});
   const [evidence, setEvidence] = useState<Record<string, Evidence[]>>({});
   const [clipFor, setClipFor] = useState<Criterion | null>(null);
+  const isRaw = mode === "raw";
+  const [rawValues, setRawValues] = useState<Record<string, ScoreValue | null>>({});
 
   useEffect(() => {
     let cancelled = false;
     (async () => {
       try {
-        const { evaluation: ev, rubric: rb } = await openEvaluation(
-          callId,
-          session.person.org_id,
-          session.person.id,
-        );
+        const { evaluation: ev, rubric: rb } = isRaw
+          ? await openRawSubmission(callId, session.person.org_id, session.person.id)
+          : await openEvaluation(callId, session.person.org_id, session.person.id);
         if (cancelled) return;
         const scores = await getScores(ev.id);
         if (cancelled) return;
@@ -73,6 +77,7 @@ export function EvaluationPanel({
         setRubric(rb);
         setValues(Object.fromEntries(scores.map((s) => [s.criterion_id, s.value])));
         setRemarks(Object.fromEntries(scores.map((s) => [s.criterion_id, s.remark])));
+        setRawValues(Object.fromEntries(scores.map((s) => [s.criterion_id, s.raw_value])));
 
         const ids = await getScoreIds(ev.id);
         if (cancelled) return;
@@ -87,7 +92,7 @@ export function EvaluationPanel({
     return () => {
       cancelled = true;
     };
-  }, [callId, session.person.org_id, session.person.id]);
+  }, [callId, session.person.org_id, session.person.id, isRaw]);
 
   const allCriteria = useMemo(
     () => (rubric?.sections ?? []).flatMap((s) => s.criteria),
@@ -177,27 +182,32 @@ export function EvaluationPanel({
         <div className="flex justify-between items-center gap-4 flex-wrap">
           <div>
             <p className="font-mono text-[10px] tracking-[0.14em] uppercase text-ink-45">
-              Evaluating &middot; rubric v{rubric.version_label}
+              {isRaw ? "Raw observation" : "Calibration"} &middot; rubric v
+              {rubric.version_label}
               {locked && " · submitted"}
             </p>
             <p className="font-display text-xl mt-0.5">{callTitle}</p>
           </div>
           <div className="flex items-center gap-5">
-            <Stat
-              value={evaluation.overall_score === null ? "—" : `${evaluation.overall_score}%`}
-              label="score"
-            />
-            <Stat value={`${answered}/${total}`} label="answered" />
-            <Stat
-              value={
-                evaluation.reward_tier === "premium"
-                  ? "Premium"
-                  : evaluation.reward_tier === "kudos"
-                    ? "Kudos"
-                    : "—"
-              }
-              label="reward"
-            />
+            {!isRaw && (
+              <Stat
+                value={evaluation.overall_score === null ? "—" : `${evaluation.overall_score}%`}
+                label="score"
+              />
+            )}
+            <Stat value={`${answered}/${total}`} label={isRaw ? "observed" : "answered"} />
+            {!isRaw && (
+              <Stat
+                value={
+                  evaluation.reward_tier === "premium"
+                    ? "Premium"
+                    : evaluation.reward_tier === "kudos"
+                      ? "Kudos"
+                      : "—"
+                }
+                label="reward"
+              />
+            )}
             <button onClick={onClose} className="border border-rule rounded px-3 py-1.5 text-[13px] hover:bg-ground-2">
               Close
             </button>
@@ -257,6 +267,7 @@ export function EvaluationPanel({
                         value={values[criterion.id] ?? null}
                         remark={remarks[criterion.id] ?? ""}
                         locked={locked}
+                        rawValue={isRaw ? null : (rawValues[criterion.id] ?? null)}
                         evidence={evidence[scoreIds[criterion.id] ?? ""] ?? []}
                         canCite={!!scoreIds[criterion.id] && segments.length > 0}
                         hasTranscript={segments.length > 0}
@@ -281,7 +292,8 @@ export function EvaluationPanel({
         );
       })}
 
-      {/* Section 3 — final determination */}
+      {/* Section 3 — final determination. Trainer only. */}
+      {!isRaw && (
       <section className="mb-6">
         <h3 className="font-display text-xl border-b border-rule pb-2 mb-4">Final determination</h3>
 
@@ -336,6 +348,45 @@ export function EvaluationPanel({
           </label>
         </div>
       </section>
+      )}
+
+      {isRaw && (
+        <section className="mb-6">
+          <h3 className="font-display text-xl border-b border-rule pb-2 mb-4">Escalation</h3>
+          <div className="bg-card border border-rule-soft rounded px-4 py-4 space-y-3">
+            <label className="flex items-start gap-2.5">
+              <input
+                type="checkbox"
+                disabled={locked}
+                checked={evaluation.is_high_risk}
+                onChange={(e) => void patch({ is_high_risk: e.target.checked })}
+                className="mt-1"
+              />
+              <span className="text-[13px]">
+                <span className="font-semibold">Escalation or risk indicator present</span>
+                <span className="text-ink-45">
+                  {" "}— refund threat, grievance, or similar
+                </span>
+              </span>
+            </label>
+            {evaluation.is_high_risk && (
+              <input
+                disabled={locked}
+                value={evaluation.escalation_note}
+                onChange={(e) =>
+                  setEvaluation({ ...evaluation, escalation_note: e.target.value })
+                }
+                onBlur={(e) => void patch({ escalation_note: e.target.value })}
+                placeholder="What you heard, factually."
+                className="w-full border border-rule rounded px-2.5 py-2 bg-white text-sm"
+              />
+            )}
+            <p className="text-[12px] text-ink-45">
+              A trainer decides the outcome. Record what you observed and submit.
+            </p>
+          </div>
+        </section>
+      )}
 
       {clipFor && (
         <ClipDialog
@@ -346,6 +397,7 @@ export function EvaluationPanel({
           scoreId={scoreIds[clipFor.id] ?? null}
           criterion={clipFor}
           allCriteria={allCriteria}
+          allowMoment={!isRaw}
           onClose={() => setClipFor(null)}
           onSaved={() => void reloadEvidence(evaluation.id)}
         />
@@ -372,6 +424,8 @@ export function EvaluationPanel({
               ? "Submitting…"
               : answered < total
                 ? `${total - answered} left to answer`
+                : isRaw
+                ? "Submit observations"
                 : "Submit evaluation"}
           </button>
         )}
@@ -394,6 +448,7 @@ function CriterionRow({
   value,
   remark,
   locked,
+  rawValue,
   evidence,
   canCite,
   hasTranscript,
@@ -407,6 +462,7 @@ function CriterionRow({
   value: ScoreValue | null;
   remark: string;
   locked: boolean;
+  rawValue: ScoreValue | null;
   evidence: Evidence[];
   canCite: boolean;
   hasTranscript: boolean;
@@ -460,7 +516,18 @@ function CriterionRow({
           )}
         </div>
 
-        <div className="flex gap-1.5 shrink-0">
+        <div className="flex flex-col items-end gap-1.5 shrink-0">
+          {rawValue && (
+            <span
+              className={`font-mono text-[10.5px] ${
+                value && value !== rawValue ? "text-[#AC3A2A]" : "text-ink-45"
+              }`}
+            >
+              reviewer said {rawValue.toUpperCase()}
+              {value && value !== rawValue && " · changed"}
+            </span>
+          )}
+        <div className="flex gap-1.5">
           {(["yes", "no", "na"] as ScoreValue[]).map((v) => (
             <button
               key={v}
@@ -479,6 +546,7 @@ function CriterionRow({
               {v === "na" ? "N/A" : v}
             </button>
           ))}
+        </div>
         </div>
       </div>
 

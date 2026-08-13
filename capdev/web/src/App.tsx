@@ -5,11 +5,13 @@ import { NoAccess } from "@/pages/NoAccess";
 import { Dashboard } from "@/pages/Dashboard";
 import { CallDetail } from "@/pages/CallDetail";
 import { MomentLibrary } from "@/pages/MomentLibrary";
+import { CalibrationQueue } from "@/pages/CalibrationQueue";
 
 type View =
   | { name: "calls" }
   | { name: "call"; id: string }
-  | { name: "moments" };
+  | { name: "moments" }
+  | { name: "queue" };
 
 export default function App(): JSX.Element {
   const state = useSession();
@@ -36,6 +38,14 @@ export default function App(): JSX.Element {
           />
         );
       }
+      if (view.name === "queue") {
+        return (
+          <CalibrationQueue
+            onOpenCall={(id) => setView({ name: "call", id })}
+            onBack={() => setView({ name: "calls" })}
+          />
+        );
+      }
       if (view.name === "moments") {
         return (
           <MomentLibrary
@@ -49,6 +59,7 @@ export default function App(): JSX.Element {
           session={state.session}
           onOpenCall={(id) => setView({ name: "call", id })}
           onOpenMoments={() => setView({ name: "moments" })}
+          onOpenQueue={() => setView({ name: "queue" })}
         />
       );
   }
