@@ -12,6 +12,7 @@ interface DashboardProps {
   onOpenMoments: () => void;
   onOpenQueue: () => void;
   onOpenRawReviews: () => void;
+  onOpenRepository: () => void;
 }
 
 export function Dashboard({
@@ -20,6 +21,7 @@ export function Dashboard({
   onOpenMoments,
   onOpenQueue,
   onOpenRawReviews,
+  onOpenRepository,
 }: DashboardProps): JSX.Element {
   const [calls, setCalls] = useState<CallListItem[] | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -69,6 +71,12 @@ export function Dashboard({
               Ready for calibration
             </button>
           )}
+          <button
+            onClick={onOpenRepository}
+            className="border border-rule rounded px-3.5 py-2 text-sm hover:bg-ground-2"
+          >
+            Repository
+          </button>
           <button
             onClick={onOpenMoments}
             className="border border-rule rounded px-3.5 py-2 text-sm hover:bg-ground-2"

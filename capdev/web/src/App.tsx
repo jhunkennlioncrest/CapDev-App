@@ -7,13 +7,17 @@ import { CallDetail } from "@/pages/CallDetail";
 import { MomentLibrary } from "@/pages/MomentLibrary";
 import { CalibrationQueue } from "@/pages/CalibrationQueue";
 import { RawReviewList } from "@/pages/RawReviewList";
+import { QualityRepository } from "@/pages/QualityRepository";
+import { QualityRecord } from "@/pages/QualityRecord";
 
 type View =
   | { name: "calls" }
   | { name: "call"; id: string }
   | { name: "moments" }
   | { name: "queue" }
-  | { name: "rawreviews" };
+  | { name: "rawreviews" }
+  | { name: "repository" }
+  | { name: "record"; id: string };
 
 export default function App(): JSX.Element {
   const state = useSession();
@@ -48,6 +52,24 @@ export default function App(): JSX.Element {
           />
         );
       }
+      if (view.name === "repository") {
+        return (
+          <QualityRepository
+            onOpenRecord={(id) => setView({ name: "record", id })}
+            onBack={() => setView({ name: "calls" })}
+          />
+        );
+      }
+      if (view.name === "record") {
+        return (
+          <QualityRecord
+            callId={view.id}
+            session={state.session}
+            onBack={() => setView({ name: "repository" })}
+            onOpenCall={(id) => setView({ name: "call", id })}
+          />
+        );
+      }
       if (view.name === "rawreviews") {
         return (
           <RawReviewList
@@ -71,6 +93,7 @@ export default function App(): JSX.Element {
           onOpenMoments={() => setView({ name: "moments" })}
           onOpenQueue={() => setView({ name: "queue" })}
           onOpenRawReviews={() => setView({ name: "rawreviews" })}
+          onOpenRepository={() => setView({ name: "repository" })}
         />
       );
   }
