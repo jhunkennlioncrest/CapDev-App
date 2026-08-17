@@ -55,6 +55,15 @@ export interface RawWorklistItem {
   segment_count: number;
   draft_evaluation_id: string | null;
   reviewer_name: string | null;
+  has_recording: boolean;
+  transcription_status: string | null;
+  next_step:
+    | "needs_audio"
+    | "transcribing"
+    | "transcription_failed"
+    | "needs_transcript"
+    | "in_progress"
+    | "ready";
 }
 
 export async function getRawWorklist(): Promise<RawWorklistItem[]> {

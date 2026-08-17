@@ -98,7 +98,7 @@ export function RawQAWorkspace({ session, onOpenCall }: Props): JSX.Element {
         todo.length === 0 ? (
           <Empty
             title="Nothing to review"
-            body="Calls appear here once they have a transcript. Upload a recording to start one."
+            body="Upload a recording to get started. It appears here straight away, and you can generate its transcript from the call."
           />
         ) : (
           <>
@@ -116,9 +116,14 @@ export function RawQAWorkspace({ session, onOpenCall }: Props): JSX.Element {
                   <div className="min-w-0 flex-1">
                     <div className="flex items-baseline gap-2.5 flex-wrap">
                       <h3 className="font-display text-lg">{t.call_title}</h3>
-                      {t.draft_evaluation_id && (
+                      {t.next_step === "in_progress" && (
                         <span className="text-[11px] border border-[#96690A] text-[#96690A] rounded-full px-2 py-0.5">
                           In progress
+                        </span>
+                      )}
+                      {t.next_step === "transcription_failed" && (
+                        <span className="text-[11px] border border-[#AC3A2A] text-[#AC3A2A] rounded-full px-2 py-0.5">
+                          Transcription failed
                         </span>
                       )}
                     </div>
@@ -130,18 +135,26 @@ export function RawQAWorkspace({ session, onOpenCall }: Props): JSX.Element {
                   <div className="flex items-center gap-3 shrink-0">
                     <span
                       className={`font-mono text-[11.5px] ${
-                        t.has_transcript ? "text-ink-45" : "text-[#96690A]"
+                        t.next_step === "ready" || t.next_step === "in_progress"
+                          ? "text-ink-45"
+                          : "text-[#96690A]"
                       }`}
                     >
-                      {t.has_transcript ? `${t.segment_count} lines` : "no transcript"}
+                      {stepLabel(t)}
                     </span>
                     <button
                       onClick={() => onOpenCall(t.call_id)}
-                      disabled={!t.has_transcript}
-                      title={t.has_transcript ? undefined : "Needs a transcript first"}
-                      className="bg-ink text-ground border border-ink rounded px-3.5 py-1.5 text-[13px] font-medium hover:opacity-85 disabled:opacity-40"
+                      className={`rounded px-3.5 py-1.5 text-[13px] font-medium ${
+                        t.next_step === "ready" || t.next_step === "in_progress"
+                          ? "bg-ink text-ground border border-ink hover:opacity-85"
+                          : "border border-rule hover:bg-ground-2"
+                      }`}
                     >
-                      {t.draft_evaluation_id ? "Continue" : "Start"}
+                      {t.next_step === "in_progress"
+                        ? "Continue"
+                        : t.next_step === "ready"
+                          ? "Start"
+                          : "Open"}
                     </button>
                   </div>
                 </li>
@@ -225,6 +238,24 @@ export function RawQAWorkspace({ session, onOpenCall }: Props): JSX.Element {
       )}
     </div>
   );
+}
+
+/** What this call is waiting on, in the reviewer's language. */
+function stepLabel(t: RawWorklistItem): string {
+  switch (t.next_step) {
+    case "needs_audio":
+      return "no audio yet";
+    case "transcribing":
+      return "transcribing…";
+    case "transcription_failed":
+      return "needs a transcript";
+    case "needs_transcript":
+      return "needs a transcript";
+    case "in_progress":
+      return `${t.segment_count} lines`;
+    default:
+      return `${t.segment_count} lines`;
+  }
 }
 
 function Empty({ title, body }: { title: string; body: string }): JSX.Element {
