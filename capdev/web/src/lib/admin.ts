@@ -21,7 +21,15 @@ export interface Role {
   id: string;
   code: string;
   name: string;
+  description: string;
 }
+
+/**
+ * Which role a person primarily holds. The model supports several, but one is
+ * almost always the answer to "what is this person" — the exception being a
+ * small team where a reviewer also calibrates.
+ */
+export const PRIMARY_ORDER = ["administrator", "qa_trainer", "raw_qa_reviewer", "manager"];
 
 export interface RubricVersionRow {
   id: string;
@@ -63,7 +71,8 @@ export async function listUsers(): Promise<AdminUser[]> {
 export async function listRoles(): Promise<Role[]> {
   const { data, error } = await supabase
     .from("app_role")
-    .select("id, code, name")
+    .select("id, code, name, description")
+    .eq("is_active", true)
     .order("name");
   if (error) throw new Error(error.message);
   return (data ?? []) as Role[];
@@ -100,7 +109,7 @@ export async function inviteUser(params: {
   if (error) throw new Error(error.message);
 
   const id = (data as { id: string }).id;
-  if (params.roleId) await assignRole(id, params.roleId, params.personId);
+  if (params.roleId) await assignRole(id, params.roleId);
   return id;
 }
 
@@ -119,23 +128,25 @@ export async function setUserStatus(
   if (error) throw new Error(error.message);
 }
 
-export async function assignRole(
-  personId: string,
-  roleId: string,
-  actorId: string,
-): Promise<void> {
-  const { error } = await supabase
-    .from("role_assignment")
-    .insert({ person_id: personId, role_id: roleId, granted_by: actorId });
-  if (error && !error.message.includes("duplicate")) throw new Error(error.message);
+/**
+ * Grants a role. Goes through the database function rather than a direct
+ * insert: it sets org_id, restores a previously revoked role instead of
+ * duplicating it, and checks permission server-side.
+ */
+export async function assignRole(personId: string, roleId: string): Promise<void> {
+  const { error } = await supabase.rpc("grant_role", {
+    p_person_id: personId,
+    p_role_id: roleId,
+  });
+  if (error) throw new Error(error.message);
 }
 
+/** Revokes, never deletes — that someone once held a role is worth keeping. */
 export async function removeRole(personId: string, roleId: string): Promise<void> {
-  const { error } = await supabase
-    .from("role_assignment")
-    .delete()
-    .eq("person_id", personId)
-    .eq("role_id", roleId);
+  const { error } = await supabase.rpc("revoke_role", {
+    p_person_id: personId,
+    p_role_id: roleId,
+  });
   if (error) throw new Error(error.message);
 }
 
@@ -143,7 +154,8 @@ export async function rolesFor(personId: string): Promise<string[]> {
   const { data } = await supabase
     .from("role_assignment")
     .select("role_id")
-    .eq("person_id", personId);
+    .eq("person_id", personId)
+    .is("revoked_at", null);
   return ((data ?? []) as { role_id: string }[]).map((r) => r.role_id);
 }
 

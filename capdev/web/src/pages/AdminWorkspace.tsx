@@ -19,6 +19,7 @@ import {
   type OrgSettings,
   type Role,
   type RubricVersionRow,
+  PRIMARY_ORDER,
 } from "@/lib/admin";
 import { formatDate } from "@/lib/format";
 import type { Session } from "@/lib/types";
@@ -270,12 +271,19 @@ function RolesSection({ session }: { session: Session }): JSX.Element {
   const [users, setUsers] = useState<AdminUser[]>([]);
   const [roles, setRoles] = useState<Role[]>([]);
   const [assigned, setAssigned] = useState<Record<string, string[]>>({});
+  const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   const load = useCallback(async (): Promise<void> => {
     const [u, r] = await Promise.all([listUsers(), listRoles()]);
     setUsers(u.filter((x) => x.status !== "archived"));
-    setRoles(r);
+    // Order the picker by seniority rather than alphabetically, so the list
+    // reads like an org chart.
+    setRoles(
+      [...r].sort(
+        (a, b) => PRIMARY_ORDER.indexOf(a.code) - PRIMARY_ORDER.indexOf(b.code),
+      ),
+    );
     const map: Record<string, string[]> = {};
     await Promise.all(
       u.map(async (person) => {
@@ -289,56 +297,129 @@ function RolesSection({ session }: { session: Session }): JSX.Element {
     void load();
   }, [load]);
 
-  async function toggle(personId: string, roleId: string, on: boolean): Promise<void> {
+  const trainerRole = roles.find((r) => r.code === "qa_trainer");
+  const reviewerRole = roles.find((r) => r.code === "raw_qa_reviewer");
+
+  /** Replaces whatever role someone held with the one chosen. */
+  async function setPrimary(personId: string, roleId: string): Promise<void> {
+    setBusy(personId);
+    setError(null);
     try {
-      if (on) await assignRole(personId, roleId, session.person.id);
-      else await removeRole(personId, roleId);
+      const current = assigned[personId] ?? [];
+      for (const held of current) {
+        if (held !== roleId) await removeRole(personId, held);
+      }
+      if (roleId && !current.includes(roleId)) await assignRole(personId, roleId);
       await load();
-      setError(null);
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
+      await load();
+    } finally {
+      setBusy(null);
     }
+  }
+
+  /** The one genuine overlap: a reviewer who also calibrates. */
+  async function toggleAlsoCalibrates(personId: string, on: boolean): Promise<void> {
+    if (!trainerRole) return;
+    setBusy(personId);
+    setError(null);
+    try {
+      if (on) await assignRole(personId, trainerRole.id);
+      else await removeRole(personId, trainerRole.id);
+      await load();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  function primaryOf(personId: string): string {
+    const held = assigned[personId] ?? [];
+    for (const code of PRIMARY_ORDER) {
+      const role = roles.find((r) => r.code === code);
+      if (role && held.includes(role.id)) return role.id;
+    }
+    return "";
   }
 
   return (
     <div>
       <p className="text-[13px] text-ink-70 max-w-xl mb-4">
-        A role decides which workspaces someone sees. Somebody can hold more than
-        one &mdash; a small team often has one person doing both jobs.
+        A role decides which parts of the platform someone sees. Most people have
+        one.
       </p>
 
       {error && <p className="text-[13px] text-[#AC3A2A] mb-3">{error}</p>}
 
-      <div className="overflow-x-auto">
-        <table className="w-full text-[13px]">
-          <thead>
-            <tr className="border-b border-rule text-left">
-              <Th>Person</Th>
-              {roles.map((r) => (
-                <Th key={r.id}>{r.name}</Th>
-              ))}
-            </tr>
-          </thead>
-          <tbody>
-            {users.map((u) => (
-              <tr key={u.id} className="border-b border-rule-soft">
-                <td className="py-2.5 pr-4">
-                  <span className="font-medium">{u.display_name}</span>
-                  <span className="block text-[11.5px] text-ink-45">{u.email}</span>
-                </td>
-                {roles.map((r) => (
-                  <td key={r.id} className="py-2.5 pr-4">
+      <ul className="space-y-2">
+        {users.map((u) => {
+          const primary = primaryOf(u.id);
+          const isReviewer = reviewerRole ? primary === reviewerRole.id : false;
+          const alsoTrainer = trainerRole
+            ? (assigned[u.id] ?? []).includes(trainerRole.id) && !!primary && primary !== trainerRole.id
+            : false;
+
+          return (
+            <li
+              key={u.id}
+              className="bg-card border border-rule-soft rounded px-4 py-3 flex justify-between items-center gap-4 flex-wrap"
+            >
+              <div className="min-w-0">
+                <span className="font-medium text-[14px]">{u.display_name}</span>
+                <span className="block text-[11.5px] text-ink-45">{u.email}</span>
+              </div>
+
+              <div className="flex items-center gap-4 flex-wrap">
+                {isReviewer && (
+                  <label className="flex items-center gap-2 text-[12.5px] text-ink-70">
                     <input
                       type="checkbox"
-                      checked={(assigned[u.id] ?? []).includes(r.id)}
-                      onChange={(e) => void toggle(u.id, r.id, e.target.checked)}
+                      checked={alsoTrainer}
+                      disabled={busy === u.id}
+                      onChange={(e) => void toggleAlsoCalibrates(u.id, e.target.checked)}
                     />
-                  </td>
-                ))}
-              </tr>
-            ))}
-          </tbody>
-        </table>
+                    Also calibrates
+                  </label>
+                )}
+
+                <select
+                  value={primary}
+                  disabled={busy === u.id || u.id === session.person.id}
+                  onChange={(e) => void setPrimary(u.id, e.target.value)}
+                  title={
+                    u.id === session.person.id
+                      ? "You can't change your own role"
+                      : undefined
+                  }
+                  className="border border-rule rounded px-2.5 py-1.5 bg-white text-[13px] disabled:opacity-50"
+                >
+                  <option value="">No access</option>
+                  {roles.map((r) => (
+                    <option key={r.id} value={r.id}>
+                      {r.name}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            </li>
+          );
+        })}
+      </ul>
+
+      <div className="mt-6 border-t border-rule pt-4">
+        <h3 className="font-mono text-[10px] tracking-[0.14em] uppercase text-ink-45 mb-2">
+          What each role can do
+        </h3>
+        <ul className="text-[13px] text-ink-70 space-y-1">
+          {roles.map((r) => (
+            <li key={r.id}>
+              <span className="font-medium">{r.name}</span>
+              {r.description && <span className="text-ink-45"> — {r.description}</span>}
+            </li>
+          ))}
+        </ul>
       </div>
     </div>
   );
