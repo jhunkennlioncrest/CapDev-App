@@ -99,6 +99,7 @@ export function RawQAWorkspace({ session, onOpenCall }: Props): JSX.Element {
           <Empty
             title="Nothing to review"
             body="Upload a recording to get started. It appears here straight away, and you can generate its transcript from the call."
+            onUpload={() => setUploadOpen(true)}
           />
         ) : (
           <>
@@ -258,11 +259,27 @@ function stepLabel(t: RawWorklistItem): string {
   }
 }
 
-function Empty({ title, body }: { title: string; body: string }): JSX.Element {
+function Empty({
+  title,
+  body,
+  onUpload,
+}: {
+  title: string;
+  body: string;
+  onUpload?: () => void;
+}): JSX.Element {
   return (
     <div className="border border-dashed border-rule rounded bg-card px-8 py-12 text-center">
       <h2 className="font-display text-2xl mb-2">{title}</h2>
       <p className="text-ink-70 max-w-md mx-auto">{body}</p>
+      {onUpload && (
+        <button
+          onClick={onUpload}
+          className="mt-4 bg-ink text-ground border border-ink rounded px-4 py-2 text-sm font-medium hover:opacity-85"
+        >
+          Upload a recording
+        </button>
+      )}
     </div>
   );
 }
