@@ -239,3 +239,28 @@ export async function updateOrg(
   const { error } = await supabase.from("organization").update(patch).eq("id", orgId);
   if (error) throw new Error(error.message);
 }
+
+export interface WorkSummary {
+  evaluations: number;
+  moments: number;
+  playlists: number;
+}
+
+/** What removing someone would affect — shown before they confirm. */
+export async function personWorkSummary(personId: string): Promise<WorkSummary> {
+  const { data, error } = await supabase
+    .rpc("person_work_summary", { p_person_id: personId })
+    .maybeSingle<WorkSummary>();
+  if (error) throw new Error(error.message);
+  return data ?? { evaluations: 0, moments: 0, playlists: 0 };
+}
+
+/**
+ * Removes someone. Deletes outright only if they produced nothing; otherwise
+ * offboards, so their name stays on the work they did. Returns which happened.
+ */
+export async function removePerson(personId: string): Promise<"deleted" | "offboarded"> {
+  const { data, error } = await supabase.rpc("remove_person", { p_person_id: personId });
+  if (error) throw new Error(error.message);
+  return data as "deleted" | "offboarded";
+}

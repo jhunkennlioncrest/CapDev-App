@@ -20,6 +20,9 @@ import {
   type Role,
   type RubricVersionRow,
   PRIMARY_ORDER,
+  personWorkSummary,
+  removePerson,
+  type WorkSummary,
 } from "@/lib/admin";
 import { formatDate } from "@/lib/format";
 import type { Session } from "@/lib/types";
@@ -77,6 +80,11 @@ function UsersSection({ session }: { session: Session }): JSX.Element {
   const [name, setName] = useState("");
   const [roleId, setRoleId] = useState("");
   const [error, setError] = useState<string | null>(null);
+  const [removing, setRemoving] = useState<AdminUser | null>(null);
+  const [work, setWork] = useState<WorkSummary | null>(null);
+  const [confirmText, setConfirmText] = useState("");
+  const [busy, setBusy] = useState(false);
+  const canManage = session.permissions.includes("person.manage");
 
   const load = useCallback(async (): Promise<void> => {
     try {
@@ -121,19 +129,50 @@ function UsersSection({ session }: { session: Session }): JSX.Element {
     }
   }
 
+  async function startRemove(u: AdminUser): Promise<void> {
+    setRemoving(u);
+    setConfirmText("");
+    setWork(null);
+    setWork(await personWorkSummary(u.id));
+  }
+
+  async function confirmRemove(): Promise<void> {
+    if (!removing) return;
+    setBusy(true);
+    try {
+      const outcome = await removePerson(removing.id);
+      setRemoving(null);
+      setError(
+        outcome === "deleted"
+          ? null
+          : `${removing.display_name} no longer has access. Their past work keeps their name on it.`,
+      );
+      await load();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  const hasWork =
+    work !== null && (work.evaluations > 0 || work.moments > 0 || work.playlists > 0);
+
   return (
     <div>
       <div className="flex justify-between items-start gap-4 flex-wrap mb-4">
         <p className="text-[13px] text-ink-70 max-w-xl">
-          Anyone invited here can sign in with their Google account. People are
-          never deleted &mdash; their past work keeps their name on it.
+          Anyone invited here can sign in with their Google account. Only
+          administrators and executives can invite or remove people.
         </p>
-        <button
-          onClick={() => setInviting(true)}
-          className="bg-ink text-ground border border-ink rounded px-4 py-2 text-sm font-medium hover:opacity-85"
-        >
-          Invite someone
-        </button>
+        {canManage && (
+          <button
+            onClick={() => setInviting(true)}
+            className="bg-ink text-ground border border-ink rounded px-4 py-2 text-sm font-medium hover:opacity-85"
+          >
+            Invite someone
+          </button>
+        )}
       </div>
 
       {error && <p className="text-[13px] text-[#AC3A2A] mb-3">{error}</p>}
@@ -193,6 +232,72 @@ function UsersSection({ session }: { session: Session }): JSX.Element {
         </div>
       )}
 
+      {removing && (
+        <div
+          className="fixed inset-0 z-50 grid place-items-center px-4"
+          style={{ background: "rgba(22,33,29,0.42)" }}
+        >
+          <div className="w-full max-w-md bg-card border border-rule rounded px-6 py-5">
+            <h2 className="font-display text-2xl mb-2">
+              Remove {removing.display_name}?
+            </h2>
+
+            {work === null ? (
+              <p className="text-[13px] text-ink-45">Checking their work&hellip;</p>
+            ) : hasWork ? (
+              <>
+                <p className="text-[13.5px] text-ink-70">
+                  They will lose access immediately and permanently.
+                </p>
+                <p className="text-[13.5px] text-ink-70 mt-2">
+                  Their work stays: {work.evaluations} evaluation
+                  {work.evaluations === 1 ? "" : "s"}
+                  {work.moments > 0 && `, ${work.moments} teaching moment${work.moments === 1 ? "" : "s"}`}
+                  {work.playlists > 0 && `, ${work.playlists} playlist${work.playlists === 1 ? "" : "s"}`}
+                  {" "}will keep their name, so the record of who did what stays true.
+                </p>
+                <p className="text-[12.5px] text-ink-45 mt-2">
+                  This is why they can&rsquo;t be deleted outright.
+                </p>
+              </>
+            ) : (
+              <p className="text-[13.5px] text-ink-70">
+                They haven&rsquo;t done any work yet, so this deletes their account
+                completely. This cannot be undone.
+              </p>
+            )}
+
+            <label className="block mt-4">
+              <span className="block text-[12px] text-ink-70 mb-1.5">
+                Type <span className="font-mono font-semibold">{removing.display_name}</span> to confirm
+              </span>
+              <input
+                value={confirmText}
+                onChange={(e) => setConfirmText(e.target.value)}
+                className="w-full border border-rule rounded px-2.5 py-2 bg-white text-sm"
+              />
+            </label>
+
+            <div className="flex gap-2 mt-4 justify-end">
+              <button
+                onClick={() => setRemoving(null)}
+                disabled={busy}
+                className="border border-rule rounded px-3.5 py-2 text-[13px] hover:bg-ground-2"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={() => void confirmRemove()}
+                disabled={busy || confirmText.trim() !== removing.display_name}
+                className="bg-[#AC3A2A] text-white border border-[#AC3A2A] rounded px-3.5 py-2 text-[13px] font-medium hover:opacity-85 disabled:opacity-40"
+              >
+                {busy ? "Removing…" : hasWork ? "Remove access" : "Delete account"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {users === null ? (
         <p className="text-ink-45 text-sm">Loading&hellip;</p>
       ) : (
@@ -238,22 +343,31 @@ function UsersSection({ session }: { session: Session }): JSX.Element {
                     )}
                   </td>
                   <td className="py-2.5 text-right whitespace-nowrap">
-                    {u.id !== session.person.id &&
-                      (u.status === "suspended" || u.status === "archived" ? (
+                    {canManage && u.id !== session.person.id && (
+                      <span className="flex gap-3 justify-end">
+                        {u.status === "suspended" || u.status === "offboarded" ? (
+                          <button
+                            onClick={() => void changeStatus(u, "active")}
+                            className="text-[12.5px] underline underline-offset-2 text-ink-45 hover:text-ink"
+                          >
+                            Reactivate
+                          </button>
+                        ) : (
+                          <button
+                            onClick={() => void changeStatus(u, "suspended")}
+                            className="text-[12.5px] underline underline-offset-2 text-ink-45 hover:text-ink"
+                          >
+                            Deactivate
+                          </button>
+                        )}
                         <button
-                          onClick={() => void changeStatus(u, "active")}
-                          className="text-[12.5px] underline underline-offset-2 text-ink-45 hover:text-ink"
+                          onClick={() => void startRemove(u)}
+                          className="text-[12.5px] underline underline-offset-2 text-[#AC3A2A] hover:opacity-75"
                         >
-                          Reactivate
+                          Remove
                         </button>
-                      ) : (
-                        <button
-                          onClick={() => void changeStatus(u, "suspended")}
-                          className="text-[12.5px] underline underline-offset-2 text-ink-45 hover:text-ink"
-                        >
-                          Deactivate
-                        </button>
-                      ))}
+                      </span>
+                    )}
                   </td>
                 </tr>
               ))}
