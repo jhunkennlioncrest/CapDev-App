@@ -83,6 +83,13 @@ export async function listRoles(): Promise<Role[]> {
  * The existing auth trigger links them when they sign in with Google, so no
  * email or password handling is needed here.
  */
+/**
+ * Adds someone to the platform.
+ *
+ * This does NOT send an email — there is no mail service. It grants access, and
+ * the person signs in themselves with Google. Links immediately if they already
+ * have an account from opening the app previously.
+ */
 export async function inviteUser(params: {
   orgId: string;
   personId: string;
@@ -91,26 +98,14 @@ export async function inviteUser(params: {
   department?: string;
   roleId?: string;
 }): Promise<string> {
-  const { data, error } = await supabase
-    .from("person")
-    .insert({
-      org_id: params.orgId,
-      email: params.email.trim().toLowerCase(),
-      display_name: params.displayName.trim(),
-      department: params.department ?? "",
-      status: "invited",
-      invited_at: new Date().toISOString(),
-      invited_by: params.personId,
-      created_by: params.personId,
-      updated_by: params.personId,
-    })
-    .select("id")
-    .single();
+  const { data, error } = await supabase.rpc("add_person", {
+    p_email: params.email.trim().toLowerCase(),
+    p_display_name: params.displayName.trim(),
+    p_department: params.department ?? "",
+    p_role_id: params.roleId ?? null,
+  });
   if (error) throw new Error(error.message);
-
-  const id = (data as { id: string }).id;
-  if (params.roleId) await assignRole(id, params.roleId);
-  return id;
+  return data as string;
 }
 
 export async function setUserStatus(

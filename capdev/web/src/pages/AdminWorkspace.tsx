@@ -76,6 +76,7 @@ function UsersSection({ session }: { session: Session }): JSX.Element {
   const [users, setUsers] = useState<AdminUser[] | null>(null);
   const [roles, setRoles] = useState<Role[]>([]);
   const [inviting, setInviting] = useState(false);
+  const [justAdded, setJustAdded] = useState<string | null>(null);
   const [email, setEmail] = useState("");
   const [name, setName] = useState("");
   const [roleId, setRoleId] = useState("");
@@ -114,6 +115,7 @@ function UsersSection({ session }: { session: Session }): JSX.Element {
       setName("");
       setRoleId("");
       setInviting(false);
+      setJustAdded(name.trim());
       await load();
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
@@ -162,20 +164,38 @@ function UsersSection({ session }: { session: Session }): JSX.Element {
     <div>
       <div className="flex justify-between items-start gap-4 flex-wrap mb-4">
         <p className="text-[13px] text-ink-70 max-w-xl">
-          Anyone invited here can sign in with their Google account. Only
-          administrators and executives can invite or remove people.
+          Adding someone grants access &mdash; it does not email them. Send them
+          the link yourself and they sign in with Google. Only administrators and
+          executives can add or remove people.
         </p>
         {canManage && (
           <button
             onClick={() => setInviting(true)}
             className="bg-ink text-ground border border-ink rounded px-4 py-2 text-sm font-medium hover:opacity-85"
           >
-            Invite someone
+            Add someone
           </button>
         )}
       </div>
 
       {error && <p className="text-[13px] text-[#AC3A2A] mb-3">{error}</p>}
+
+      {justAdded && (
+        <div className="bg-card border border-rule-soft rounded px-4 py-3.5 mb-4 flex justify-between items-start gap-4">
+          <p className="text-[13px] text-ink-70">
+            <span className="font-semibold">{justAdded} now has access.</span> They
+            won&rsquo;t get an email &mdash; send them{" "}
+            <span className="font-mono text-[12.5px]">{window.location.origin}</span>{" "}
+            and tell them to sign in with the Google account you used here.
+          </p>
+          <button
+            onClick={() => setJustAdded(null)}
+            className="text-[12.5px] text-ink-45 underline underline-offset-2 shrink-0"
+          >
+            Dismiss
+          </button>
+        </div>
+      )}
 
       {inviting && (
         <div className="bg-card border border-rule-soft rounded px-4 py-4 mb-4 grid sm:grid-cols-3 gap-3">
@@ -220,7 +240,7 @@ function UsersSection({ session }: { session: Session }): JSX.Element {
               disabled={!email.trim() || !name.trim()}
               className="bg-ink text-ground border border-ink rounded px-3.5 py-1.5 text-[13px] font-medium disabled:opacity-40"
             >
-              Send invitation
+              Add them
             </button>
             <button
               onClick={() => setInviting(false)}

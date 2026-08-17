@@ -30,12 +30,25 @@ export function useSession(): State {
         return;
       }
 
-      const { data: person } = await supabase
-        .from("person")
-        .select("id, org_id, email, display_name, status")
-        .eq("auth_user_id", authUser.id)
-        .is("archived_at", null)
-        .maybeSingle<Person>();
+      const lookup = async (): Promise<Person | null> => {
+        const { data } = await supabase
+          .from("person")
+          .select("id, org_id, email, display_name, status")
+          .eq("auth_user_id", authUser.id)
+          .is("archived_at", null)
+          .maybeSingle<Person>();
+        return data;
+      };
+
+      let person = await lookup();
+
+      // Nothing linked to this auth account yet. They may have been added after
+      // they first opened the app, in which case the sign-in trigger never ran
+      // for them. Claim by email, then look again.
+      if (!person) {
+        await supabase.rpc("claim_person");
+        person = await lookup();
+      }
 
       if (cancelled) return;
 
