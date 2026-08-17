@@ -1,100 +1,79 @@
 import { useState } from "react";
 import { useSession } from "@/lib/useSession";
+import { AppShell, visibleWorkspaces, type Workspace } from "@/components/AppShell";
 import { SignIn } from "@/pages/SignIn";
 import { NoAccess } from "@/pages/NoAccess";
-import { Dashboard } from "@/pages/Dashboard";
+import { HomeDashboard } from "@/pages/HomeDashboard";
+import { RawQAWorkspace } from "@/pages/RawQAWorkspace";
+import { CalibrationWorkspace } from "@/pages/CalibrationWorkspace";
+import { LibraryWorkspace } from "@/pages/LibraryWorkspace";
+import { AdminPlaceholder } from "@/pages/AdminPlaceholder";
 import { CallDetail } from "@/pages/CallDetail";
-import { MomentLibrary } from "@/pages/MomentLibrary";
-import { CalibrationQueue } from "@/pages/CalibrationQueue";
-import { RawReviewList } from "@/pages/RawReviewList";
-import { QualityRepository } from "@/pages/QualityRepository";
 import { QualityRecord } from "@/pages/QualityRecord";
 
-type View =
-  | { name: "calls" }
-  | { name: "call"; id: string }
-  | { name: "moments" }
-  | { name: "queue" }
-  | { name: "rawreviews" }
-  | { name: "repository" }
-  | { name: "record"; id: string };
+/**
+ * Five workspaces, filtered by role. A call or a completed evaluation opens
+ * over the workspace it was reached from, so closing it returns you where you
+ * were rather than to a lifecycle stage.
+ */
+type Overlay = { kind: "call"; id: string } | { kind: "record"; id: string } | null;
 
 export default function App(): JSX.Element {
   const state = useSession();
-  const [view, setView] = useState<View>({ name: "calls" });
+  const [workspace, setWorkspace] = useState<Workspace>("dashboard");
+  const [overlay, setOverlay] = useState<Overlay>(null);
 
-  switch (state.status) {
-    case "loading":
-      return (
-        <main className="min-h-screen grid place-items-center">
-          <p className="text-ink-45 text-sm">Loading&hellip;</p>
-        </main>
-      );
-    case "signed-out":
-      return <SignIn />;
-    case "no-access":
-      return <NoAccess email={state.email} />;
-    case "signed-in":
-      if (view.name === "call") {
-        return (
-          <CallDetail
-            callId={view.id}
-            session={state.session}
-            onBack={() => setView({ name: "calls" })}
-          />
-        );
-      }
-      if (view.name === "queue") {
-        return (
-          <CalibrationQueue
-            onOpenCall={(id) => setView({ name: "call", id })}
-            onBack={() => setView({ name: "calls" })}
-          />
-        );
-      }
-      if (view.name === "repository") {
-        return (
-          <QualityRepository
-            onOpenRecord={(id) => setView({ name: "record", id })}
-            onBack={() => setView({ name: "calls" })}
-          />
-        );
-      }
-      if (view.name === "record") {
-        return (
-          <QualityRecord
-            callId={view.id}
-            session={state.session}
-            onBack={() => setView({ name: "repository" })}
-            onOpenCall={(id) => setView({ name: "call", id })}
-          />
-        );
-      }
-      if (view.name === "rawreviews") {
-        return (
-          <RawReviewList
-            onOpenCall={(id) => setView({ name: "call", id })}
-            onBack={() => setView({ name: "calls" })}
-          />
-        );
-      }
-      if (view.name === "moments") {
-        return (
-          <MomentLibrary
-            onOpenCall={(id) => setView({ name: "call", id })}
-            onBack={() => setView({ name: "calls" })}
-          />
-        );
-      }
-      return (
-        <Dashboard
-          session={state.session}
-          onOpenCall={(id) => setView({ name: "call", id })}
-          onOpenMoments={() => setView({ name: "moments" })}
-          onOpenQueue={() => setView({ name: "queue" })}
-          onOpenRawReviews={() => setView({ name: "rawreviews" })}
-          onOpenRepository={() => setView({ name: "repository" })}
-        />
-      );
+  if (state.status === "loading") {
+    return (
+      <main className="min-h-screen grid place-items-center">
+        <p className="text-ink-45 text-sm">Loading&hellip;</p>
+      </main>
+    );
   }
+  if (state.status === "signed-out") return <SignIn />;
+  if (state.status === "no-access") return <NoAccess email={state.email} />;
+
+  const { session } = state;
+  const allowed = visibleWorkspaces(session.permissions).map((w) => w.key);
+  const active = allowed.includes(workspace) ? workspace : "dashboard";
+
+  const openCall = (id: string): void => setOverlay({ kind: "call", id });
+  const openRecord = (id: string): void => setOverlay({ kind: "record", id });
+  const close = (): void => setOverlay(null);
+
+  return (
+    <AppShell
+      session={session}
+      active={active}
+      onNavigate={(w) => {
+        setOverlay(null);
+        setWorkspace(w);
+      }}
+    >
+      {overlay?.kind === "call" ? (
+        <CallDetail callId={overlay.id} session={session} onBack={close} />
+      ) : overlay?.kind === "record" ? (
+        <QualityRecord
+          callId={overlay.id}
+          session={session}
+          onBack={close}
+          onOpenCall={openCall}
+        />
+      ) : active === "rawqa" ? (
+        <RawQAWorkspace session={session} onOpenCall={openCall} />
+      ) : active === "calibration" ? (
+        <CalibrationWorkspace onOpenCall={openCall} />
+      ) : active === "library" ? (
+        <LibraryWorkspace
+          session={session}
+          onOpenCall={openCall}
+          onOpenRecord={openRecord}
+        />
+      ) : active === "admin" ? (
+        <AdminPlaceholder />
+      ) : (
+        <HomeDashboard session={session} onNavigate={setWorkspace} />
+      )}
+    </AppShell>
+  );
 }

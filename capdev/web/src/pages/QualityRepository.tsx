@@ -5,6 +5,7 @@ import { formatDate, formatDuration } from "@/lib/format";
 interface Props {
   onOpenRecord: (callId: string) => void;
   onBack: () => void;
+  embedded?: boolean;
 }
 
 type SortKey = "recent" | "score_low" | "score_high" | "rep";
@@ -20,7 +21,7 @@ type SortKey = "recent" | "score_low" | "score_high" | "rep";
  * default, but the more useful default in practice is score_low — the calls
  * worth revisiting are the ones that went badly, not the ones that went well.
  */
-export function QualityRepository({ onOpenRecord, onBack }: Props): JSX.Element {
+export function QualityRepository({ onOpenRecord, onBack, embedded = false }: Props): JSX.Element {
   const [rows, setRows] = useState<RepositoryRow[] | null>(null);
   const [query, setQuery] = useState("");
   const [sort, setSort] = useState<SortKey>("recent");
@@ -75,6 +76,7 @@ export function QualityRepository({ onOpenRecord, onBack }: Props): JSX.Element 
 
   return (
     <div className="max-w-6xl mx-auto px-6 pb-20">
+{!embedded && (
       <header className="pt-8 pb-5 border-b border-rule">
         <button
           onClick={onBack}
@@ -88,6 +90,7 @@ export function QualityRepository({ onOpenRecord, onBack }: Props): JSX.Element 
           &mdash; anywhere else they appear is a copy.
         </p>
       </header>
+      )}
 
       {rows !== null && rows.length > 0 && (
         <div className="grid grid-cols-2 sm:grid-cols-5 border-b border-rule">

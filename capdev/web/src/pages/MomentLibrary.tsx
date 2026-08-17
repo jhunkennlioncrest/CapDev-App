@@ -8,6 +8,7 @@ import { signedUrlFor } from "@/lib/calls";
 interface Props {
   onOpenCall: (id: string) => void;
   onBack: () => void;
+  embedded?: boolean;
 }
 
 interface LibraryMoment extends Moment {
@@ -20,7 +21,7 @@ interface LibraryMoment extends Moment {
  * Deliberately search-first: someone opens this because they have a situation
  * in mind, not because they want to browse. Filters are secondary.
  */
-export function MomentLibrary({ onOpenCall, onBack }: Props): JSX.Element {
+export function MomentLibrary({ onOpenCall, onBack, embedded = false }: Props): JSX.Element {
   const [moments, setMoments] = useState<LibraryMoment[] | null>(null);
   const [criteria, setCriteria] = useState<Criterion[]>([]);
   const [query, setQuery] = useState("");
@@ -75,7 +76,8 @@ export function MomentLibrary({ onOpenCall, onBack }: Props): JSX.Element {
   const totalMs = visible.reduce((sum, m) => sum + m.duration_ms, 0);
 
   return (
-    <div className="max-w-5xl mx-auto px-6 pb-20">
+    <div className={embedded ? "max-w-6xl mx-auto px-6 pb-20" : "max-w-5xl mx-auto px-6 pb-20"}>
+{!embedded && (
       <header className="pt-8 pb-5 border-b border-rule">
         <button
           onClick={onBack}
@@ -89,6 +91,7 @@ export function MomentLibrary({ onOpenCall, onBack }: Props): JSX.Element {
           coaching any rep.
         </p>
       </header>
+      )}
 
       {error && <p className="mt-5 text-[13px] text-[#AC3A2A]">{error}</p>}
 
