@@ -1,0 +1,229 @@
+import { supabase } from "./supabase";
+
+export interface AdminUser {
+  id: string;
+  display_name: string;
+  email: string;
+  status: "invited" | "active" | "suspended" | "offboarded" | "archived";
+  department: string;
+  last_login_at: string | null;
+  invited_at: string | null;
+  created_at: string;
+  archived_at: string | null;
+  roles: string[];
+  last_raw_submitted: string | null;
+  last_calibration: string | null;
+  raw_count: number;
+  calibration_count: number;
+}
+
+export interface Role {
+  id: string;
+  code: string;
+  name: string;
+}
+
+export interface RubricVersionRow {
+  id: string;
+  rubric_id: string;
+  version_label: string;
+  title: string;
+  status: "draft" | "active" | "archived";
+  effective_date: string | null;
+  change_summary: string;
+  created_at: string;
+  activated_at: string | null;
+  archived_at: string | null;
+  rubric_name: string;
+  created_by_name: string | null;
+  criterion_count: number;
+  evaluations_using: number;
+}
+
+export interface Integration {
+  id: string;
+  provider: "elevenlabs" | "notion";
+  display_name: string;
+  status: "not_configured" | "connected" | "error" | "disabled";
+  config: Record<string, unknown>;
+  last_verified_at: string | null;
+  last_error: string | null;
+  configured_by: string | null;
+}
+
+export async function listUsers(): Promise<AdminUser[]> {
+  const { data, error } = await supabase
+    .from("v_admin_users")
+    .select("*")
+    .order("display_name");
+  if (error) throw new Error(error.message);
+  return (data ?? []) as AdminUser[];
+}
+
+export async function listRoles(): Promise<Role[]> {
+  const { data, error } = await supabase
+    .from("app_role")
+    .select("id, code, name")
+    .order("name");
+  if (error) throw new Error(error.message);
+  return (data ?? []) as Role[];
+}
+
+/**
+ * Invites someone by creating their Person row ahead of first sign-in.
+ * The existing auth trigger links them when they sign in with Google, so no
+ * email or password handling is needed here.
+ */
+export async function inviteUser(params: {
+  orgId: string;
+  personId: string;
+  email: string;
+  displayName: string;
+  department?: string;
+  roleId?: string;
+}): Promise<string> {
+  const { data, error } = await supabase
+    .from("person")
+    .insert({
+      org_id: params.orgId,
+      email: params.email.trim().toLowerCase(),
+      display_name: params.displayName.trim(),
+      department: params.department ?? "",
+      status: "invited",
+      invited_at: new Date().toISOString(),
+      invited_by: params.personId,
+      created_by: params.personId,
+      updated_by: params.personId,
+    })
+    .select("id")
+    .single();
+  if (error) throw new Error(error.message);
+
+  const id = (data as { id: string }).id;
+  if (params.roleId) await assignRole(id, params.roleId, params.personId);
+  return id;
+}
+
+export async function setUserStatus(
+  personId: string,
+  status: AdminUser["status"],
+  actorId: string,
+): Promise<void> {
+  const patch: Record<string, unknown> = { status, updated_by: actorId };
+  if (status === "suspended") {
+    patch.deactivated_at = new Date().toISOString();
+    patch.deactivated_by = actorId;
+  }
+  if (status === "archived") patch.archived_at = new Date().toISOString();
+  const { error } = await supabase.from("person").update(patch).eq("id", personId);
+  if (error) throw new Error(error.message);
+}
+
+export async function assignRole(
+  personId: string,
+  roleId: string,
+  actorId: string,
+): Promise<void> {
+  const { error } = await supabase
+    .from("role_assignment")
+    .insert({ person_id: personId, role_id: roleId, granted_by: actorId });
+  if (error && !error.message.includes("duplicate")) throw new Error(error.message);
+}
+
+export async function removeRole(personId: string, roleId: string): Promise<void> {
+  const { error } = await supabase
+    .from("role_assignment")
+    .delete()
+    .eq("person_id", personId)
+    .eq("role_id", roleId);
+  if (error) throw new Error(error.message);
+}
+
+export async function rolesFor(personId: string): Promise<string[]> {
+  const { data } = await supabase
+    .from("role_assignment")
+    .select("role_id")
+    .eq("person_id", personId);
+  return ((data ?? []) as { role_id: string }[]).map((r) => r.role_id);
+}
+
+export async function listRubricVersions(): Promise<RubricVersionRow[]> {
+  const { data, error } = await supabase
+    .from("v_rubric_versions")
+    .select("*")
+    .order("created_at", { ascending: false });
+  if (error) throw new Error(error.message);
+  return (data ?? []) as RubricVersionRow[];
+}
+
+export async function copyRubricVersion(
+  sourceId: string,
+  newLabel: string,
+  title?: string,
+): Promise<string> {
+  const { data, error } = await supabase.rpc("copy_rubric_version", {
+    p_source_id: sourceId,
+    p_new_label: newLabel,
+    p_title: title ?? null,
+  });
+  if (error) throw new Error(error.message);
+  return data as string;
+}
+
+export async function activateRubricVersion(versionId: string): Promise<void> {
+  const { error } = await supabase.rpc("activate_rubric_version", {
+    p_version_id: versionId,
+  });
+  if (error) throw new Error(error.message);
+}
+
+export async function updateDraftMeta(
+  versionId: string,
+  patch: { title?: string; change_summary?: string; effective_date?: string | null },
+): Promise<void> {
+  const { error } = await supabase.from("rubric_version").update(patch).eq("id", versionId);
+  if (error) throw new Error(error.message);
+}
+
+export async function listIntegrations(): Promise<Integration[]> {
+  const { data, error } = await supabase.from("integration").select("*").order("provider");
+  if (error) throw new Error(error.message);
+  return (data ?? []) as Integration[];
+}
+
+export async function updateIntegration(
+  id: string,
+  patch: Partial<Pick<Integration, "status" | "config" | "last_error">> & {
+    last_verified_at?: string;
+    configured_by?: string;
+  },
+): Promise<void> {
+  const { error } = await supabase.from("integration").update(patch).eq("id", id);
+  if (error) throw new Error(error.message);
+}
+
+export interface OrgSettings {
+  id: string;
+  name: string;
+  timezone: string;
+  logo_url: string | null;
+  playlist_period: "weekly" | "monthly";
+  retention_months: number | null;
+}
+
+export async function getOrg(orgId: string): Promise<OrgSettings | null> {
+  const { data } = await supabase
+    .from("organization")
+    .select("id, name, timezone, logo_url, playlist_period, retention_months")
+    .eq("id", orgId)
+    .maybeSingle<OrgSettings>();
+  return data;
+}
+
+export async function updateOrg(
+  orgId: string,
+  patch: Partial<Omit<OrgSettings, "id">>,
+): Promise<void> {
+  const { error } = await supabase.from("organization").update(patch).eq("id", orgId);
+  if (error) throw new Error(error.message);
+}

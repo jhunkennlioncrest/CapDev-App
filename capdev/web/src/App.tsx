@@ -7,7 +7,7 @@ import { HomeDashboard } from "@/pages/HomeDashboard";
 import { RawQAWorkspace } from "@/pages/RawQAWorkspace";
 import { CalibrationWorkspace } from "@/pages/CalibrationWorkspace";
 import { LibraryWorkspace } from "@/pages/LibraryWorkspace";
-import { AdminPlaceholder } from "@/pages/AdminPlaceholder";
+import { AdminWorkspace } from "@/pages/AdminWorkspace";
 import { CallDetail } from "@/pages/CallDetail";
 import { QualityRecord } from "@/pages/QualityRecord";
 
@@ -70,7 +70,7 @@ export default function App(): JSX.Element {
           onOpenRecord={openRecord}
         />
       ) : active === "admin" ? (
-        <AdminPlaceholder />
+        <AdminWorkspace session={session} />
       ) : (
         <HomeDashboard session={session} onNavigate={setWorkspace} />
       )}
