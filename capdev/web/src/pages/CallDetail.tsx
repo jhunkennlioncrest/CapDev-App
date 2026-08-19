@@ -1,4 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import { SpeakerManager } from "@/pages/SpeakerManager";
+import { displaySpeaker, type SpeakerMap } from "@/lib/speakers";
 import {
   getCall,
   getTranscript,
@@ -49,6 +51,8 @@ export function CallDetail({ callId, session, onBack }: Props): JSX.Element {
   const audioRef = useRef<HTMLAudioElement>(null);
   const activeRef = useRef<HTMLLIElement>(null);
   const [followAlong, setFollowAlong] = useState(true);
+  // Identity is resolved at render, so a rename shows everywhere at once.
+  const [speakerMap, setSpeakerMap] = useState<SpeakerMap>({});
 
   const canUpload = session.permissions.includes("call.upload");
   const workspace = workspaceFor(session.permissions);
@@ -62,6 +66,9 @@ export function CallDetail({ callId, session, onBack }: Props): JSX.Element {
       ]);
       setCall(c);
       setTranscript(t);
+      // Identities resolve at render, so they have to be in hand before the
+      // first paint — otherwise a named transcript flashes raw labels.
+      setSpeakerMap(t?.speakers ?? {});
       setJob(j);
       if (c?.storage_path) setAudioUrl(await signedUrlFor(c.storage_path));
       setError(null);
@@ -358,6 +365,10 @@ export function CallDetail({ callId, session, onBack }: Props): JSX.Element {
               </div>
             )}
 
+            {transcript && !editing && (
+              <SpeakerManager transcriptId={transcript.id} onChanged={setSpeakerMap} />
+            )}
+
             <ul
               className="bg-card border border-rule-soft rounded divide-y divide-rule-soft max-h-[60vh] overflow-auto"
               onWheel={() => setFollowAlong(false)}
@@ -368,16 +379,14 @@ export function CallDetail({ callId, session, onBack }: Props): JSX.Element {
                       <span className="font-mono text-[11px] text-ink-45 w-14 shrink-0 pt-2 tabular-nums">
                         {seg.start_ms === null ? "\u2014" : formatDuration(seg.start_ms)}
                       </span>
-                      <input
-                        value={seg.speaker ?? ""}
-                        onChange={(e) => {
-                          const next = [...draft];
-                          next[i] = { ...seg, speaker: e.target.value || null };
-                          setDraft(next);
-                        }}
-                        placeholder="Speaker"
-                        className="w-24 shrink-0 border border-rule rounded px-2 py-1 text-[13px] bg-white"
-                      />
+                      {/* Read-only: a speaker is named once above, not
+                          retyped on every line. */}
+                      <span
+                        title="Rename speakers using Speakers, above the transcript"
+                        className="w-24 shrink-0 text-[12.5px] text-ink-45 pt-1.5 truncate"
+                      >
+                        {displaySpeaker(seg.speaker, speakerMap) || "—"}
+                      </span>
                       <textarea
                         value={seg.text}
                         onChange={(e) => {
@@ -406,7 +415,9 @@ export function CallDetail({ callId, session, onBack }: Props): JSX.Element {
                     </span>
                     <span className="min-w-0">
                       {seg.speaker && (
-                        <span className="font-semibold text-[13px] mr-1.5">{seg.speaker}:</span>
+                        <span className="font-semibold text-[13px] mr-1.5">
+                          {displaySpeaker(seg.speaker, speakerMap)}:
+                        </span>
                       )}
                       <span className="text-[14px] text-ink-70">{seg.text}</span>
                     </span>

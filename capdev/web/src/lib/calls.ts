@@ -168,6 +168,8 @@ export interface StoredTranscript {
   kind: "machine" | "reviewed" | "manual";
   supersedes_id: string | null;
   provider: string;
+  /** Label to identity. Segments keep the provider's label; this names it. */
+  speakers: Record<string, { name?: string; role?: string }>;
 }
 
 export async function getCall(callId: string): Promise<CallListItem | null> {
@@ -183,7 +185,7 @@ export async function getCall(callId: string): Promise<CallListItem | null> {
 export async function getTranscript(callId: string): Promise<StoredTranscript | null> {
   const { data, error } = await supabase
     .from("transcript")
-    .select("id, call_id, source_format, original_filename, segments, segment_count, has_timing, speaker_count, version_no, created_at, kind, supersedes_id, provider")
+    .select("id, call_id, source_format, original_filename, segments, segment_count, has_timing, speaker_count, version_no, created_at, kind, supersedes_id, provider, speakers")
     .eq("call_id", callId)
     .is("archived_at", null)
     .eq("status", "available")
