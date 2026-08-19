@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { CalibrationPanel } from "@/pages/CalibrationPanel";
 import {
   getScores,
   openEvaluation,
@@ -65,6 +66,9 @@ export function EvaluationPanel({
   const [evidence, setEvidence] = useState<Record<string, Evidence[]>>({});
   const [clipFor, setClipFor] = useState<Criterion | null>(null);
   const isRaw = mode === "raw";
+  // A calibration derived from a raw submission is validation work; a direct
+  // calibration with no reviewer behind it is an ordinary evaluation.
+  const isValidation = !isRaw && Boolean(evaluation?.derived_from_id);
   const [rawValues, setRawValues] = useState<Record<string, ScoreValue | null>>({});
 
   useEffect(() => {
@@ -228,7 +232,13 @@ export function EvaluationPanel({
 
       {error && <p className="text-[13px] text-[#AC3A2A] mb-4">{error}</p>}
 
-      {rubric.sections.map((section) => {
+      {/* Validating a reviewer's work is a different task from scoring a call,
+          so it gets a different surface: both answers side by side, variance
+          named, and nothing counted as agreement until it is asserted. */}
+      {isValidation ? (
+        <CalibrationPanel evaluationId={evaluation.id} />
+      ) : (
+      rubric.sections.map((section) => {
         const isCollapsed = collapsed[section.id];
         const done = section.criteria.filter((c) => values[c.id]).length;
         return (
@@ -295,7 +305,7 @@ export function EvaluationPanel({
             )}
           </section>
         );
-      })}
+      }))}
 
       {/* Section 3 — final determination. Trainer only. */}
       {!isRaw && (

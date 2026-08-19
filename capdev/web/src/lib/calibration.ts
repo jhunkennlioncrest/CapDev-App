@@ -1,0 +1,168 @@
+import { supabase } from "./supabase";
+
+/**
+ * Calibration is validation, not a second evaluation.
+ *
+ * The question is whether the reviewer read the rubric correctly — so both
+ * answers are kept, side by side, permanently, and every disagreement is
+ * classified rather than merely recorded.
+ */
+
+export type Answer = "yes" | "no" | "na";
+export type Variance = "agreed" | "missed_failure" | "false_failure" | "scope_change";
+
+export interface CalibrationRow {
+  score_id: string;
+  criterion_id: string;
+  code: string;
+  label: string;
+  statement: string;
+  guidance: string[];
+  na_condition: string;
+  stage: string;
+  section_code: string;
+  section_title: string;
+  section_kind: "checklist" | "non_negotiable";
+  sort_order: number;
+
+  raw_value: Answer | null;
+  raw_remark: string;
+  raw_updated_at: string | null;
+
+  value: Answer | null;
+  remark: string;
+  calibrated_at: string | null;
+  variance: Variance | null;
+}
+
+export interface CalibrationSummary {
+  evaluation_id: string;
+  reviewer_name: string | null;
+  trainer_name: string | null;
+  version_label: string | null;
+  criteria_compared: number;
+  agreed: number;
+  changed: number;
+  missed_failures: number;
+  false_failures: number;
+  scope_changes: number;
+  not_yet_calibrated: number;
+  agreement_rate: number | null;
+}
+
+export const VARIANCE_LABELS: Record<Variance, { label: string; meaning: string; colour: string }> =
+  {
+    agreed: { label: "Agreed", meaning: "", colour: "#1F7A4D" },
+    missed_failure: {
+      label: "Missed failure",
+      meaning: "The reviewer passed something that should have failed.",
+      colour: "#AC3A2A",
+    },
+    false_failure: {
+      label: "False failure",
+      meaning: "The reviewer failed something that met the rubric.",
+      colour: "#96690A",
+    },
+    scope_change: {
+      label: "Scope change",
+      meaning: "Disagreement about whether the criterion applied at all.",
+      colour: "#2C6E9B",
+    },
+  };
+
+export async function getCalibrationRows(evaluationId: string): Promise<CalibrationRow[]> {
+  const { data: scores, error } = await supabase
+    .from("evaluation_score")
+    .select(
+      "id, criterion_id, value, remark, raw_value, raw_remark, raw_updated_at, calibrated_at, variance",
+    )
+    .eq("evaluation_id", evaluationId);
+  if (error) throw new Error(error.message);
+
+  const rows = (scores ?? []) as {
+    id: string;
+    criterion_id: string;
+    value: Answer | null;
+    remark: string;
+    raw_value: Answer | null;
+    raw_remark: string;
+    raw_updated_at: string | null;
+    calibrated_at: string | null;
+    variance: Variance | null;
+  }[];
+
+  if (rows.length === 0) return [];
+
+  const { data: criteria } = await supabase
+    .from("v_rubric_criteria_flat")
+    .select("*")
+    .in(
+      "criterion_id",
+      rows.map((r) => r.criterion_id),
+    );
+
+  const byId = new Map(
+    ((criteria ?? []) as Record<string, unknown>[]).map((c) => [c["criterion_id"] as string, c]),
+  );
+
+  return rows
+    .map((r) => {
+      const c = byId.get(r.criterion_id) ?? {};
+      return {
+        score_id: r.id,
+        criterion_id: r.criterion_id,
+        code: (c["code"] as string) ?? "",
+        label: (c["label"] as string) ?? "",
+        statement: (c["statement"] as string) ?? "",
+        guidance: (c["guidance"] as string[]) ?? [],
+        na_condition: (c["na_condition"] as string) ?? "",
+        stage: (c["stage"] as string) ?? "",
+        section_code: (c["section_code"] as string) ?? "",
+        section_title: (c["section_title"] as string) ?? "",
+        section_kind: (c["section_kind"] as "checklist" | "non_negotiable") ?? "checklist",
+        sort_order: (c["sort_order"] as number) ?? 0,
+        raw_value: r.raw_value,
+        raw_remark: r.raw_remark,
+        raw_updated_at: r.raw_updated_at,
+        value: r.value,
+        remark: r.remark,
+        calibrated_at: r.calibrated_at,
+        variance: r.variance,
+      };
+    })
+    .sort((a, b) => a.sort_order - b.sort_order);
+}
+
+export async function getSummary(evaluationId: string): Promise<CalibrationSummary | null> {
+  const { data } = await supabase
+    .from("v_calibration_summary")
+    .select("*")
+    .eq("evaluation_id", evaluationId)
+    .maybeSingle<CalibrationSummary>();
+  return data;
+}
+
+/** Agreeing and changing are the same act: a judgement, recorded. */
+export async function decide(params: {
+  evaluationId: string;
+  criterionId: string;
+  value: Answer;
+  note?: string;
+}): Promise<void> {
+  const { error } = await supabase.rpc("calibrate_criterion", {
+    p_evaluation_id: params.evaluationId,
+    p_criterion_id: params.criterionId,
+    p_value: params.value,
+    p_note: params.note ?? null,
+  });
+  if (error) throw new Error(error.message);
+}
+
+/** One deliberate act covering everything still undecided. */
+export async function agreeWithRemaining(evaluationId: string): Promise<number> {
+  const { data, error } = await supabase.rpc("agree_with_remaining", {
+    p_evaluation_id: evaluationId,
+  });
+  if (error) throw new Error(error.message);
+  return (data as number) ?? 0;
+}
