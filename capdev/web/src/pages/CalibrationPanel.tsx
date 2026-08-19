@@ -1,15 +1,21 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
+  adoptReviewerEvidence,
   agreeWithRemaining,
+  citeEvidence,
   decide,
+  parseClock,
+  removeEvidence,
   getCalibrationRows,
   getSummary,
   VARIANCE_LABELS,
   type Answer,
   type CalibrationRow,
   type CalibrationSummary,
+  type EvidenceItem,
 } from "@/lib/calibration";
 import { formatDate } from "@/lib/format";
+import type { Session } from "@/lib/types";
 
 /** mm:ss, the way a timestamp is spoken about. */
 function formatClock(ms: number | null): string {
@@ -36,10 +42,14 @@ const ANSWERS: { value: Answer; label: string }[] = [
  */
 export function CalibrationPanel({
   evaluationId,
+  callId,
+  session,
   onPlayClip,
   onCountsChanged,
 }: {
   evaluationId: string;
+  callId: string;
+  session: Session;
   /** Bounded playback: starts at the quote and stops at its end. */
   onPlayClip?: (startMs: number, endMs: number) => void;
   onCountsChanged?: (decided: number, total: number) => void;
@@ -74,6 +84,15 @@ export function CalibrationPanel({
   const undecided = useMemo(() => rows.filter((r) => !r.calibrated_at).length, [rows]);
   const changed = useMemo(
     () => rows.filter((r) => r.variance && r.variance !== "agreed"),
+    [rows],
+  );
+  // Only disagreements can be outstanding: agreeing needs no new evidence,
+  // because the reviewer already supplied it.
+  const outstanding = useMemo(
+    () =>
+      rows.filter(
+        (r) => r.blocker === "needs_evidence" || r.blocker === "needs_justification",
+      ),
     [rows],
   );
 
@@ -159,6 +178,20 @@ export function CalibrationPanel({
 
       {undecided === 0 && summary && <SummaryCard summary={summary} />}
 
+      {outstanding.length > 0 && (
+        <div className="border border-[#96690A] rounded bg-card px-4 py-3 mb-5">
+          <p className="text-[13px]">
+            <span className="font-semibold">
+              {outstanding.length} changed criteri{outstanding.length === 1 ? "on" : "a"}
+            </span>{" "}
+            still need what supports the decision:{" "}
+            <span className="font-mono text-[12px]">
+              {outstanding.map((r) => r.code).join(", ")}
+            </span>
+          </p>
+        </div>
+      )}
+
       {sections.map((code) => {
         const inSection = rows.filter((r) => r.section_code === code);
         const first = inSection[0];
@@ -176,7 +209,14 @@ export function CalibrationPanel({
                       {row.stage}
                     </p>
                   )}
-                  <CriterionRow row={row} onDecide={onDecide} onPlayClip={onPlayClip} />
+                  <CriterionRow
+                    row={row}
+                    callId={callId}
+                    session={session}
+                    onDecide={onDecide}
+                    onPlayClip={onPlayClip}
+                    onRefresh={load}
+                  />
                 </div>
               );
             })}
@@ -248,12 +288,18 @@ function Figure({
 
 function CriterionRow({
   row,
+  callId,
+  session,
   onDecide,
   onPlayClip,
+  onRefresh,
 }: {
   row: CalibrationRow;
+  callId: string;
+  session: Session;
   onDecide: (row: CalibrationRow, value: Answer, note?: string) => Promise<void>;
   onPlayClip?: (startMs: number, endMs: number) => void;
+  onRefresh: () => Promise<void>;
 }): JSX.Element {
   const [note, setNote] = useState(row.remark);
   const [showNote, setShowNote] = useState(false);
@@ -418,37 +464,257 @@ function CriterionRow({
 
           {spec && <p className="text-[12px] text-ink-45 mt-2">{spec.meaning}</p>}
 
-          {(variance || showNote || note) && (
-            <div className="mt-2.5">
-              <textarea
-                value={note}
-                onChange={(e) => setNote(e.target.value)}
-                onBlur={() => {
-                  if (note !== row.remark && row.value) {
-                    void onDecide(row, row.value, note);
-                  }
-                }}
-                rows={2}
-                placeholder={
-                  variance
-                    ? "Why you decided differently — the reviewer will read this"
-                    : "Note for the reviewer"
-                }
-                className="w-full border border-rule rounded px-2.5 py-2 bg-white text-[13px]"
-              />
-            </div>
-          )}
-
-          {!variance && !showNote && !note && decided && (
-            <button
-              onClick={() => setShowNote(true)}
-              className="text-[12px] text-ink-45 underline underline-offset-2 mt-2"
-            >
-              Add a note
-            </button>
+          {/* Disagreeing replaces the reviewer's conclusion with a different
+              one, so it carries its own evidence and its own reasoning. */}
+          {variance ? (
+            <TrainerJustification
+              row={row}
+              callId={callId}
+              session={session}
+              note={note}
+              onNote={setNote}
+              onCommitNote={() => {
+                if (note !== row.remark && row.value) void onDecide(row, row.value, note);
+              }}
+              onPlayClip={onPlayClip}
+              onRefresh={onRefresh}
+            />
+          ) : (
+            <>
+              {(showNote || note) && (
+                <textarea
+                  value={note}
+                  onChange={(e) => setNote(e.target.value)}
+                  onBlur={() => {
+                    if (note !== row.remark && row.value) void onDecide(row, row.value, note);
+                  }}
+                  rows={2}
+                  placeholder="Note for the reviewer — optional"
+                  className="w-full border border-rule rounded px-2.5 py-2 bg-white text-[13px] mt-2.5"
+                />
+              )}
+              {!showNote && !note && decided && (
+                <button
+                  onClick={() => setShowNote(true)}
+                  className="text-[12px] text-ink-45 underline underline-offset-2 mt-2"
+                >
+                  Add a note
+                </button>
+              )}
+            </>
           )}
         </div>
       </div>
+    </div>
+  );
+}
+
+
+/**
+ * What the trainer must supply when replacing the reviewer's conclusion:
+ * evidence and reasoning. Appears only on disagreement — agreement needs
+ * neither, because the reviewer already did that work.
+ */
+function TrainerJustification({
+  row,
+  callId,
+  session,
+  note,
+  onNote,
+  onCommitNote,
+  onPlayClip,
+  onRefresh,
+}: {
+  row: CalibrationRow;
+  callId: string;
+  session: Session;
+  note: string;
+  onNote: (v: string) => void;
+  onCommitNote: () => void;
+  onPlayClip?: (startMs: number, endMs: number) => void;
+  onRefresh: () => Promise<void>;
+}): JSX.Element {
+  const [adding, setAdding] = useState(false);
+  const [from, setFrom] = useState("");
+  const [to, setTo] = useState("");
+  const [quote, setQuote] = useState("");
+  const [error, setError] = useState<string | null>(null);
+
+  const needsEvidence = row.trainer_evidence.length === 0;
+  const needsReason = note.trim().length === 0;
+
+  async function cite(): Promise<void> {
+    const startMs = parseClock(from);
+    if (startMs === null) {
+      setError("Give a start time like 9:22.");
+      return;
+    }
+    try {
+      await citeEvidence({
+        orgId: session.person.org_id,
+        personId: session.person.id,
+        scoreId: row.score_id,
+        callId,
+        startMs,
+        endMs: parseClock(to) ?? startMs + 20000,
+        excerpt: quote.trim(),
+      });
+      setFrom("");
+      setTo("");
+      setQuote("");
+      setAdding(false);
+      setError(null);
+      await onRefresh();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    }
+  }
+
+  async function adopt(ev: EvidenceItem): Promise<void> {
+    try {
+      await adoptReviewerEvidence(row.score_id, ev.id);
+      await onRefresh();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    }
+  }
+
+  const adopted = new Set(
+    row.trainer_evidence.map((e) => `${e.start_ms}-${e.end_ms}-${e.excerpt}`),
+  );
+
+  return (
+    <div className="mt-3 border-t border-rule-soft pt-3">
+      <p className="font-mono text-[10px] tracking-[0.14em] uppercase text-ink-45 mb-2">
+        What supports your decision
+      </p>
+
+      {error && <p className="text-[12.5px] text-[#AC3A2A] mb-2">{error}</p>}
+
+      {row.trainer_evidence.length > 0 && (
+        <ul className="space-y-1.5 mb-2.5">
+          {row.trainer_evidence.map((ev) => (
+            <li key={ev.id} className="border-l-2 border-accent pl-2.5">
+              <div className="flex items-baseline gap-2 flex-wrap">
+                {ev.start_ms !== null && onPlayClip ? (
+                  <button
+                    onClick={() =>
+                      onPlayClip(ev.start_ms ?? 0, ev.end_ms ?? (ev.start_ms ?? 0) + 15000)
+                    }
+                    className="font-mono text-[11.5px] text-accent hover:underline underline-offset-2"
+                  >
+                    &#9654; {formatClock(ev.start_ms)}
+                    {ev.end_ms !== null && `–${formatClock(ev.end_ms)}`}
+                  </button>
+                ) : (
+                  <span className="font-mono text-[11.5px] text-ink-45">
+                    {formatClock(ev.start_ms)}
+                  </span>
+                )}
+                <button
+                  onClick={() => {
+                    void removeEvidence(ev.id).then(onRefresh);
+                  }}
+                  className="text-[11px] text-ink-45 hover:text-[#AC3A2A] underline underline-offset-2"
+                >
+                  remove
+                </button>
+              </div>
+              {ev.excerpt && (
+                <p className="text-[12.5px] text-ink-70 leading-relaxed">
+                  &ldquo;{ev.excerpt}&rdquo;
+                </p>
+              )}
+            </li>
+          ))}
+        </ul>
+      )}
+
+      {needsEvidence && (
+        <p className="text-[12px] text-[#96690A] mb-2">
+          &#9888; Cite what supports your decision before this can be submitted.
+        </p>
+      )}
+
+      {adding ? (
+        <div className="border border-rule rounded bg-white px-3 py-2.5 mb-2.5">
+          <div className="flex gap-2 mb-2">
+            <input
+              value={from}
+              onChange={(e) => setFrom(e.target.value)}
+              placeholder="9:22"
+              className="w-20 border border-rule rounded px-2 py-1.5 text-[13px] font-mono"
+            />
+            <span className="text-ink-45 self-center text-[13px]">to</span>
+            <input
+              value={to}
+              onChange={(e) => setTo(e.target.value)}
+              placeholder="9:35"
+              className="w-20 border border-rule rounded px-2 py-1.5 text-[13px] font-mono"
+            />
+          </div>
+          <textarea
+            value={quote}
+            onChange={(e) => setQuote(e.target.value)}
+            rows={2}
+            placeholder="What was said"
+            className="w-full border border-rule rounded px-2.5 py-2 text-[13px] mb-2"
+          />
+          <div className="flex gap-2">
+            <button
+              onClick={() => void cite()}
+              className="bg-ink text-ground border border-ink rounded px-3 py-1.5 text-[12.5px]"
+            >
+              Cite this
+            </button>
+            <button
+              onClick={() => setAdding(false)}
+              className="border border-rule rounded px-3 py-1.5 text-[12.5px]"
+            >
+              Cancel
+            </button>
+          </div>
+        </div>
+      ) : (
+        <div className="flex gap-2.5 flex-wrap mb-2.5">
+          <button
+            onClick={() => setAdding(true)}
+            className="border border-rule rounded px-3 py-1.5 text-[12.5px] hover:bg-ground-2"
+          >
+            Cite a passage
+          </button>
+          {/* Reusing the reviewer's citation is common and legitimate: the
+              same quote can support a different conclusion. */}
+          {row.raw_evidence
+            .filter((ev) => !adopted.has(`${ev.start_ms}-${ev.end_ms}-${ev.excerpt}`))
+            .map((ev) => (
+              <button
+                key={ev.id}
+                onClick={() => void adopt(ev)}
+                title={ev.excerpt}
+                className="border border-rule-soft rounded px-3 py-1.5 text-[12.5px] text-ink-45 hover:bg-ground-2 hover:text-ink"
+              >
+                + use reviewer&rsquo;s {formatClock(ev.start_ms)}
+              </button>
+            ))}
+        </div>
+      )}
+
+      <textarea
+        value={note}
+        onChange={(e) => onNote(e.target.value)}
+        onBlur={onCommitNote}
+        rows={2}
+        placeholder="Why you decided differently — the reviewer will read this"
+        className={`w-full border rounded px-2.5 py-2 bg-white text-[13px] ${
+          needsReason ? "border-[#96690A]" : "border-rule"
+        }`}
+      />
+      {needsReason && (
+        <p className="text-[12px] text-[#96690A] mt-1">
+          &#9888; A justification is required when you change an answer.
+        </p>
+      )}
     </div>
   );
 }

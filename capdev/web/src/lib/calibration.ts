@@ -42,6 +42,9 @@ export interface CalibrationRow {
   remark: string;
   calibrated_at: string | null;
   variance: Variance | null;
+  trainer_evidence: EvidenceItem[];
+  /** What still stands between this criterion and submission. */
+  blocker: "not_calibrated" | "needs_evidence" | "needs_justification" | null;
 }
 
 export interface CalibrationSummary {
@@ -118,6 +121,35 @@ export async function getCalibrationRows(evaluationId: string): Promise<Calibrat
       .eq("calibration_id", evaluationId),
   ]);
 
+  // The trainer's own citations, and what is still outstanding per criterion.
+  const [{ data: readiness }, { data: mine }] = await Promise.all([
+    supabase
+      .from("v_calibration_readiness")
+      .select("criterion_id, blocker")
+      .eq("evaluation_id", evaluationId),
+    supabase
+      .from("evidence")
+      .select("id, subject_id, start_ms, end_ms, excerpt, note")
+      .eq("subject_type", "evaluation_score")
+      .in(
+        "subject_id",
+        rows.map((r) => r.id),
+      ),
+  ]);
+
+  const blockerByCriterion = new Map(
+    ((readiness ?? []) as { criterion_id: string; blocker: CalibrationRow["blocker"] }[]).map(
+      (r) => [r.criterion_id, r.blocker],
+    ),
+  );
+
+  const trainerEvidenceByScore = new Map<string, EvidenceItem[]>();
+  for (const e of (mine ?? []) as (EvidenceItem & { subject_id: string })[]) {
+    const list = trainerEvidenceByScore.get(e.subject_id) ?? [];
+    list.push(e);
+    trainerEvidenceByScore.set(e.subject_id, list);
+  }
+
   const evidenceByCriterion = new Map(
     ((observations ?? []) as { criterion_id: string; evidence: EvidenceItem[] }[]).map((o) => [
       o.criterion_id,
@@ -149,6 +181,10 @@ export async function getCalibrationRows(evaluationId: string): Promise<Calibrat
         raw_remark: r.raw_remark,
         raw_updated_at: r.raw_updated_at,
         raw_evidence: evidenceByCriterion.get(r.criterion_id) ?? [],
+        trainer_evidence: (trainerEvidenceByScore.get(r.id) ?? []).sort(
+          (a, b) => (a.start_ms ?? 0) - (b.start_ms ?? 0),
+        ),
+        blocker: blockerByCriterion.get(r.criterion_id) ?? null,
         value: r.value,
         remark: r.remark,
         calibrated_at: r.calibrated_at,
@@ -190,4 +226,62 @@ export async function agreeWithRemaining(evaluationId: string): Promise<number> 
   });
   if (error) throw new Error(error.message);
   return (data as number) ?? 0;
+}
+
+
+/**
+ * Adopts one of the reviewer's citations as the trainer's own.
+ *
+ * Sometimes the reviewer quoted exactly the right passage and read it the
+ * wrong way. Adopting says "this quote, different conclusion".
+ */
+export async function adoptReviewerEvidence(
+  scoreId: string,
+  evidenceId: string,
+): Promise<void> {
+  const { error } = await supabase.rpc("adopt_reviewer_evidence", {
+    p_score_id: scoreId,
+    p_evidence_id: evidenceId,
+  });
+  if (error) throw new Error(error.message);
+}
+
+export async function citeEvidence(params: {
+  orgId: string;
+  personId: string;
+  scoreId: string;
+  callId: string;
+  startMs: number | null;
+  endMs: number | null;
+  excerpt: string;
+}): Promise<void> {
+  const { error } = await supabase.from("evidence").insert({
+    org_id: params.orgId,
+    subject_type: "evaluation_score",
+    subject_id: params.scoreId,
+    call_id: params.callId,
+    start_ms: params.startMs,
+    end_ms: params.endMs,
+    excerpt: params.excerpt,
+    created_by: params.personId,
+  });
+  if (error) throw new Error(error.message);
+}
+
+export async function removeEvidence(id: string): Promise<void> {
+  const { error } = await supabase.from("evidence").delete().eq("id", id);
+  if (error) throw new Error(error.message);
+}
+
+/** mm:ss in, milliseconds out. Trainers think in clock time. */
+export function parseClock(text: string): number | null {
+  const t = text.trim();
+  if (!t) return null;
+  const parts = t.split(":").map((p) => p.trim());
+  if (parts.some((p) => p === "" || Number.isNaN(Number(p)))) return null;
+  if (parts.length === 1) return Number(parts[0]) * 1000;
+  if (parts.length === 2) return (Number(parts[0]) * 60 + Number(parts[1])) * 1000;
+  if (parts.length === 3)
+    return (Number(parts[0]) * 3600 + Number(parts[1]) * 60 + Number(parts[2])) * 1000;
+  return null;
 }
