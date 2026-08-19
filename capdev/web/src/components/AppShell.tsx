@@ -1,6 +1,7 @@
 import type { ReactNode } from "react";
 import { supabase } from "@/lib/supabase";
 import type { Session } from "@/lib/types";
+import { EnvironmentBadge } from "@/components/EnvironmentBadge";
 
 export type Workspace = "dashboard" | "rawqa" | "calibration" | "library" | "admin";
 
@@ -48,8 +49,11 @@ export function AppShell({
       <header className="border-b border-rule bg-ground sticky top-0 z-30">
         <div className="max-w-6xl mx-auto px-6">
           <div className="flex justify-between items-center pt-4 pb-2 gap-4">
-            <span className="font-mono text-[10px] tracking-[0.16em] uppercase text-ink-45">
-              Capability &amp; Development
+            <span className="flex items-center gap-2.5">
+              <span className="font-mono text-[10px] tracking-[0.16em] uppercase text-ink-45">
+                Capability &amp; Development
+              </span>
+              <EnvironmentBadge />
             </span>
             <div className="flex items-center gap-3">
               <span className="text-[12px] text-ink-45">{session.person.display_name}</span>

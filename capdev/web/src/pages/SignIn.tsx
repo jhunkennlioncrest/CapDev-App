@@ -1,4 +1,5 @@
 import { supabase } from "@/lib/supabase";
+import { EnvironmentBadge } from "@/components/EnvironmentBadge";
 
 /**
  * Deliberately spare: one button, no form, no marketing copy.
@@ -19,6 +20,7 @@ export function SignIn(): JSX.Element {
         <p className="font-mono text-[10px] tracking-[0.16em] uppercase text-ink-45">
           Capability &amp; Development
         </p>
+        <div className="mb-3"><EnvironmentBadge /></div>
         <h1 className="font-display text-4xl mt-2 mb-8">Moment Library</h1>
         <button
           onClick={() => void signIn()}

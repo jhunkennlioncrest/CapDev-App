@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useSession } from "@/lib/useSession";
 import { AppShell, visibleWorkspaces, type Workspace } from "@/components/AppShell";
 import { SignIn } from "@/pages/SignIn";
@@ -9,6 +9,8 @@ import { CalibrationWorkspace } from "@/pages/CalibrationWorkspace";
 import { LibraryWorkspace } from "@/pages/LibraryWorkspace";
 import { AdminWorkspace } from "@/pages/AdminWorkspace";
 import { CallDetail } from "@/pages/CallDetail";
+import { EnvironmentMismatch } from "@/components/EnvironmentBadge";
+import { verifyEnvironment, type EnvironmentCheck } from "@/lib/environment";
 import { QualityRecord } from "@/pages/QualityRecord";
 
 /**
@@ -20,10 +22,26 @@ type Overlay = { kind: "call"; id: string } | { kind: "record"; id: string } | n
 
 export default function App(): JSX.Element {
   const state = useSession();
+  const [envCheck, setEnvCheck] = useState<EnvironmentCheck | null>(null);
+
+  // Before anything else: confirm this deployment is talking to the database it
+  // expects. Working in the wrong environment is worse than not working.
+  useEffect(() => {
+    void verifyEnvironment().then(setEnvCheck);
+  }, []);
   const [workspace, setWorkspace] = useState<Workspace>("dashboard");
   const [overlay, setOverlay] = useState<Overlay>(null);
 
-  if (state.status === "loading") {
+  if (envCheck && !envCheck.ok) {
+    return (
+      <EnvironmentMismatch
+        declared={envCheck.declared}
+        actual={envCheck.actual ?? "unknown"}
+      />
+    );
+  }
+
+  if (!envCheck || state.status === "loading") {
     return (
       <main className="min-h-screen grid place-items-center">
         <p className="text-ink-45 text-sm">Loading&hellip;</p>

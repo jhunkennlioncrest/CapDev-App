@@ -25,9 +25,16 @@ import {
   type WorkSummary,
 } from "@/lib/admin";
 import { formatDate } from "@/lib/format";
+import {
+  DECLARED_ENVIRONMENT,
+  ENVIRONMENT_COLOUR,
+  ENVIRONMENT_LABEL,
+  verifyEnvironment,
+  type EnvironmentCheck,
+} from "@/lib/environment";
 import type { Session } from "@/lib/types";
 
-type Tab = "users" | "roles" | "rubrics" | "integrations" | "organization";
+type Tab = "users" | "roles" | "rubrics" | "integrations" | "organization" | "environment";
 
 /**
  * Administration — the governance layer.
@@ -56,6 +63,7 @@ export function AdminWorkspace({ session }: { session: Session }): JSX.Element {
           { key: "rubrics" as const, label: "Rubrics" },
           { key: "integrations" as const, label: "Integrations" },
           { key: "organization" as const, label: "Organization" },
+          { key: "environment" as const, label: "Environment" },
         ]}
         active={tab}
         onChange={setTab}
@@ -66,6 +74,7 @@ export function AdminWorkspace({ session }: { session: Session }): JSX.Element {
       {tab === "rubrics" && <RubricsSection />}
       {tab === "integrations" && <IntegrationsSection />}
       {tab === "organization" && <OrganizationSection session={session} />}
+      {tab === "environment" && <EnvironmentSection />}
     </div>
   );
 }
@@ -869,6 +878,76 @@ function OrganizationSection({ session }: { session: Session }): JSX.Element {
       </div>
 
       {saved && <p className="text-[12px] text-ink-45 mt-2">Saved.</p>}
+    </div>
+  );
+}
+
+// ---------------------------------------------------------- environment
+
+/**
+ * Informational only. Environment is set by the deployment, so there is
+ * nothing here to change — showing it is the point.
+ */
+function EnvironmentSection(): JSX.Element {
+  const [check, setCheck] = useState<EnvironmentCheck | null>(null);
+
+  useEffect(() => {
+    void verifyEnvironment().then(setCheck);
+  }, []);
+
+  const colour = ENVIRONMENT_COLOUR[DECLARED_ENVIRONMENT];
+  const isSandbox = DECLARED_ENVIRONMENT === "sandbox";
+
+  return (
+    <div className="max-w-xl">
+      <div className="bg-card border rounded px-5 py-5" style={{ borderColor: colour }}>
+        <p className="font-mono text-[10px] tracking-[0.14em] uppercase text-ink-45">
+          Current environment
+        </p>
+        <p className="font-display text-3xl mt-1" style={{ color: colour }}>
+          {ENVIRONMENT_LABEL[DECLARED_ENVIRONMENT]}
+        </p>
+        <p className="text-[13.5px] text-ink-70 mt-2">
+          {isSandbox
+            ? "Experimentation, training and workflow validation. Nothing here is an official record, and this database can be reset without affecting production."
+            : "Live operational work. Everything here is part of the organisation's official record."}
+        </p>
+      </div>
+
+      <dl className="mt-5 border-t border-rule">
+        <Row label="Database" value={isSandbox ? "Sandbox project" : "Production project"} />
+        <Row label="Storage" value={isSandbox ? "Sandbox bucket" : "Production bucket"} />
+        <Row label="Sign-in" value={isSandbox ? "Sandbox OAuth client" : "Production OAuth client"} />
+        <Row label="Transcription" value={isSandbox ? "Sandbox API key" : "Production API key"} />
+        <Row
+          label="Database agrees"
+          value={
+            check === null
+              ? "checking…"
+              : check.actual === null
+                ? "not declared"
+                : check.ok
+                  ? "yes"
+                  : `no — database says ${check.actual}`
+          }
+        />
+      </dl>
+
+      <p className="text-[12.5px] text-ink-45 mt-5">
+        Environment is a property of this deployment and cannot be changed here.
+        Sandbox and Production are separate installations of the same software,
+        each with its own database, storage and credentials. Nothing moves
+        between them automatically.
+      </p>
+    </div>
+  );
+}
+
+function Row({ label, value }: { label: string; value: string }): JSX.Element {
+  return (
+    <div className="flex justify-between gap-4 py-2.5 border-b border-rule-soft">
+      <dt className="text-[13px] text-ink-45">{label}</dt>
+      <dd className="text-[13px] text-right">{value}</dd>
     </div>
   );
 }
