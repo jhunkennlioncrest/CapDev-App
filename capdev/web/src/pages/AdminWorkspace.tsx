@@ -1,14 +1,11 @@
 import { useCallback, useEffect, useState } from "react";
 import { SubNav } from "@/components/AppShell";
 import {
-  activateRubricVersion,
   assignRole,
-  copyRubricVersion,
   getOrg,
   inviteUser,
   listIntegrations,
   listRoles,
-  listRubricVersions,
   listUsers,
   removeRole,
   rolesFor,
@@ -18,13 +15,13 @@ import {
   type Integration,
   type OrgSettings,
   type Role,
-  type RubricVersionRow,
   PRIMARY_ORDER,
   personWorkSummary,
   removePerson,
   type WorkSummary,
 } from "@/lib/admin";
 import { formatDate } from "@/lib/format";
+import { RubricAdmin } from "@/pages/RubricAdmin";
 import {
   DECLARED_ENVIRONMENT,
   ENVIRONMENT_COLOUR,
@@ -71,7 +68,7 @@ export function AdminWorkspace({ session }: { session: Session }): JSX.Element {
 
       {tab === "users" && <UsersSection session={session} />}
       {tab === "roles" && <RolesSection session={session} />}
-      {tab === "rubrics" && <RubricsSection />}
+      {tab === "rubrics" && <RubricAdmin />}
       {tab === "integrations" && <IntegrationsSection />}
       {tab === "organization" && <OrganizationSection session={session} />}
       {tab === "environment" && <EnvironmentSection />}
@@ -569,169 +566,6 @@ function RolesSection({ session }: { session: Session }): JSX.Element {
 }
 
 // ---------------------------------------------------------------- rubrics
-
-function RubricsSection(): JSX.Element {
-  const [versions, setVersions] = useState<RubricVersionRow[] | null>(null);
-  const [copying, setCopying] = useState<string | null>(null);
-  const [label, setLabel] = useState("");
-  const [error, setError] = useState<string | null>(null);
-  const [busy, setBusy] = useState(false);
-
-  const load = useCallback(async (): Promise<void> => {
-    try {
-      setVersions(await listRubricVersions());
-      setError(null);
-    } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
-    }
-  }, []);
-
-  useEffect(() => {
-    void load();
-  }, [load]);
-
-  async function copy(sourceId: string): Promise<void> {
-    setBusy(true);
-    try {
-      await copyRubricVersion(sourceId, label);
-      setLabel("");
-      setCopying(null);
-      await load();
-    } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  async function activate(id: string): Promise<void> {
-    setBusy(true);
-    try {
-      await activateRubricVersion(id);
-      await load();
-    } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  const active = (versions ?? []).find((v) => v.status === "active");
-
-  return (
-    <div>
-      <p className="text-[13px] text-ink-70 max-w-xl mb-4">
-        To change the rubric, copy the active version, edit the copy, then
-        activate it. The old version is kept &mdash; every past evaluation stays
-        measured against the rubric it was scored with.
-      </p>
-
-      {error && <p className="text-[13px] text-[#AC3A2A] mb-3">{error}</p>}
-
-      {active && (
-        <div className="bg-card border border-ink rounded px-4 py-3.5 mb-4">
-          <p className="font-mono text-[10px] tracking-[0.14em] uppercase text-ink-45">
-            Currently active
-          </p>
-          <div className="flex justify-between items-baseline gap-4 flex-wrap mt-1">
-            <div>
-              <span className="font-display text-xl">
-                {active.title} &middot; v{active.version_label}
-              </span>
-              <p className="text-[12px] text-ink-45 mt-0.5">
-                {active.criterion_count} criteria &middot; {active.evaluations_using}{" "}
-                evaluation{active.evaluations_using === 1 ? "" : "s"} scored against it
-                {active.activated_at && ` · since ${formatDate(active.activated_at)}`}
-              </p>
-            </div>
-            {copying === active.id ? (
-              <div className="flex gap-2 items-center">
-                <input
-                  value={label}
-                  onChange={(e) => setLabel(e.target.value)}
-                  placeholder="1.1"
-                  className="w-20 border border-rule rounded px-2 py-1.5 bg-white text-[13px]"
-                />
-                <button
-                  onClick={() => void copy(active.id)}
-                  disabled={!label.trim() || busy}
-                  className="bg-ink text-ground border border-ink rounded px-3 py-1.5 text-[13px] disabled:opacity-40"
-                >
-                  Create draft
-                </button>
-                <button
-                  onClick={() => setCopying(null)}
-                  className="border border-rule rounded px-3 py-1.5 text-[13px]"
-                >
-                  Cancel
-                </button>
-              </div>
-            ) : (
-              <button
-                onClick={() => setCopying(active.id)}
-                className="border border-rule rounded px-3.5 py-1.5 text-[13px] hover:bg-ground-2"
-              >
-                Create a new version from this
-              </button>
-            )}
-          </div>
-        </div>
-      )}
-
-      {versions === null ? (
-        <p className="text-ink-45 text-sm">Loading&hellip;</p>
-      ) : (
-        <ul className="space-y-2">
-          {versions
-            .filter((v) => v.status !== "active")
-            .map((v) => (
-              <li
-                key={v.id}
-                className="bg-card border border-rule-soft rounded px-4 py-3 flex justify-between items-center gap-4 flex-wrap"
-              >
-                <div className="min-w-0">
-                  <span className="font-display text-base">
-                    {v.title} &middot; v{v.version_label}
-                  </span>
-                  <span
-                    className={`text-[11px] border rounded-full px-2 py-0.5 ml-2 ${
-                      v.status === "draft"
-                        ? "border-[#96690A] text-[#96690A]"
-                        : "border-rule text-ink-45"
-                    }`}
-                  >
-                    {v.status}
-                  </span>
-                  <p className="text-[12px] text-ink-45 mt-0.5">
-                    {v.criterion_count} criteria
-                    {v.created_by_name && ` · by ${v.created_by_name}`}
-                    {v.evaluations_using > 0 &&
-                      ` · ${v.evaluations_using} evaluation${v.evaluations_using === 1 ? "" : "s"} used it`}
-                    {v.archived_at && ` · archived ${formatDate(v.archived_at)}`}
-                  </p>
-                </div>
-                {v.status === "draft" && (
-                  <button
-                    onClick={() => void activate(v.id)}
-                    disabled={busy}
-                    className="bg-ink text-ground border border-ink rounded px-3.5 py-1.5 text-[13px] font-medium hover:opacity-85 disabled:opacity-40"
-                  >
-                    Make this the active rubric
-                  </button>
-                )}
-              </li>
-            ))}
-        </ul>
-      )}
-
-      <p className="text-[12px] text-ink-45 mt-4 max-w-xl">
-        Editing the criteria inside a draft is not yet possible here &mdash; that
-        screen comes next. A draft copied from the active version already has all
-        its criteria.
-      </p>
-    </div>
-  );
-}
 
 // ---------------------------------------------------------- integrations
 
