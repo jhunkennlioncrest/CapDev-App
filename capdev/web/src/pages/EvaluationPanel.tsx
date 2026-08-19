@@ -236,7 +236,7 @@ export function EvaluationPanel({
           so it gets a different surface: both answers side by side, variance
           named, and nothing counted as agreement until it is asserted. */}
       {isValidation ? (
-        <CalibrationPanel evaluationId={evaluation.id} />
+        <CalibrationPanel evaluationId={evaluation.id} onPlayClip={onPlayClip} />
       ) : (
       rubric.sections.map((section) => {
         const isCollapsed = collapsed[section.id];

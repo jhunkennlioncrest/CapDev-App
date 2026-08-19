@@ -11,6 +11,15 @@ import {
 } from "@/lib/calibration";
 import { formatDate } from "@/lib/format";
 
+/** mm:ss, the way a timestamp is spoken about. */
+function formatClock(ms: number | null): string {
+  if (ms === null) return "—";
+  const total = Math.floor(ms / 1000);
+  const m = Math.floor(total / 60);
+  const sec = total % 60;
+  return `${m}:${String(sec).padStart(2, "0")}`;
+}
+
 const ANSWERS: { value: Answer; label: string }[] = [
   { value: "yes", label: "YES" },
   { value: "no", label: "NO" },
@@ -27,9 +36,12 @@ const ANSWERS: { value: Answer; label: string }[] = [
  */
 export function CalibrationPanel({
   evaluationId,
+  onPlayClip,
   onCountsChanged,
 }: {
   evaluationId: string;
+  /** Bounded playback: starts at the quote and stops at its end. */
+  onPlayClip?: (startMs: number, endMs: number) => void;
   onCountsChanged?: (decided: number, total: number) => void;
 }): JSX.Element {
   const [rows, setRows] = useState<CalibrationRow[]>([]);
@@ -164,7 +176,7 @@ export function CalibrationPanel({
                       {row.stage}
                     </p>
                   )}
-                  <CriterionRow row={row} onDecide={onDecide} />
+                  <CriterionRow row={row} onDecide={onDecide} onPlayClip={onPlayClip} />
                 </div>
               );
             })}
@@ -237,9 +249,11 @@ function Figure({
 function CriterionRow({
   row,
   onDecide,
+  onPlayClip,
 }: {
   row: CalibrationRow;
   onDecide: (row: CalibrationRow, value: Answer, note?: string) => Promise<void>;
+  onPlayClip?: (startMs: number, endMs: number) => void;
 }): JSX.Element {
   const [note, setNote] = useState(row.remark);
   const [showNote, setShowNote] = useState(false);
@@ -291,12 +305,15 @@ function CriterionRow({
       </div>
 
       <div className="grid sm:grid-cols-2 border-t border-rule-soft">
-        {/* The reviewer's observation — read only, always */}
-        <div className="px-4 py-3 sm:border-r border-rule-soft bg-ground/40">
-          <p className="font-mono text-[10px] tracking-[0.14em] uppercase text-ink-45 mb-1.5">
-            Reviewer observed
+        {/* The reviewer's complete observation: answer, evidence, reasoning.
+            Tinted and bordered so it reads as a record being examined rather
+            than a field being edited. */}
+        <div className="px-4 py-3 sm:border-r border-rule-soft bg-ground/50">
+          <p className="font-mono text-[10px] tracking-[0.14em] uppercase text-ink-45 mb-2">
+            Reviewer observation &middot; read only
           </p>
-          <div className="flex items-center gap-2.5 flex-wrap">
+
+          <div className="flex items-baseline gap-2.5 flex-wrap">
             <span className="font-mono text-[15px] font-semibold">
               {row.raw_value ? row.raw_value.toUpperCase() : "—"}
             </span>
@@ -306,8 +323,58 @@ function CriterionRow({
               </span>
             )}
           </div>
-          {row.raw_remark && (
-            <p className="text-[12.5px] text-ink-70 mt-1.5 leading-relaxed">{row.raw_remark}</p>
+
+          {row.raw_evidence.length > 0 ? (
+            <div className="mt-2.5">
+              <p className="text-[11px] text-ink-45 mb-1.5">
+                {row.raw_evidence.length === 1
+                  ? "Evidence"
+                  : `Evidence · ${row.raw_evidence.length} quotes`}
+              </p>
+              <ul className="space-y-1.5">
+                {row.raw_evidence.map((ev) => (
+                  <li key={ev.id} className="border-l-2 border-rule pl-2.5">
+                    {ev.start_ms !== null && onPlayClip ? (
+                      <button
+                        onClick={() => onPlayClip(ev.start_ms ?? 0, ev.end_ms ?? (ev.start_ms ?? 0) + 15000)}
+                        title="Play just this passage"
+                        className="font-mono text-[11.5px] text-accent hover:underline underline-offset-2"
+                      >
+                        &#9654; {formatClock(ev.start_ms)}
+                        {ev.end_ms !== null && `–${formatClock(ev.end_ms)}`}
+                      </button>
+                    ) : (
+                      ev.start_ms !== null && (
+                        <span className="font-mono text-[11.5px] text-ink-45">
+                          {formatClock(ev.start_ms)}
+                          {ev.end_ms !== null && `–${formatClock(ev.end_ms)}`}
+                        </span>
+                      )
+                    )}
+                    {ev.excerpt && (
+                      <p className="text-[12.5px] text-ink-70 leading-relaxed mt-0.5">
+                        &ldquo;{ev.excerpt}&rdquo;
+                      </p>
+                    )}
+                  </li>
+                ))}
+              </ul>
+            </div>
+          ) : (
+            /* Evidence quality is part of what calibration validates, so its
+               absence is stated rather than left as blank space. */
+            <p className="text-[12px] text-[#96690A] mt-2.5">
+              &#9888; No supporting evidence attached.
+            </p>
+          )}
+
+          {row.raw_remark ? (
+            <div className="mt-2.5">
+              <p className="text-[11px] text-ink-45 mb-0.5">Reviewer notes</p>
+              <p className="text-[12.5px] text-ink-70 leading-relaxed">{row.raw_remark}</p>
+            </div>
+          ) : (
+            <p className="text-[12px] text-ink-45 mt-2.5">No reviewer note.</p>
           )}
         </div>
 

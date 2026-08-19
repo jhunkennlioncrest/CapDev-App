@@ -11,6 +11,14 @@ import { supabase } from "./supabase";
 export type Answer = "yes" | "no" | "na";
 export type Variance = "agreed" | "missed_failure" | "false_failure" | "scope_change";
 
+export interface EvidenceItem {
+  id: string;
+  start_ms: number | null;
+  end_ms: number | null;
+  excerpt: string;
+  note: string;
+}
+
 export interface CalibrationRow {
   score_id: string;
   criterion_id: string;
@@ -28,6 +36,7 @@ export interface CalibrationRow {
   raw_value: Answer | null;
   raw_remark: string;
   raw_updated_at: string | null;
+  raw_evidence: EvidenceItem[];
 
   value: Answer | null;
   remark: string;
@@ -93,13 +102,28 @@ export async function getCalibrationRows(evaluationId: string): Promise<Calibrat
 
   if (rows.length === 0) return [];
 
-  const { data: criteria } = await supabase
-    .from("v_rubric_criteria_flat")
-    .select("*")
-    .in(
-      "criterion_id",
-      rows.map((r) => r.criterion_id),
-    );
+  const [{ data: criteria }, { data: observations }] = await Promise.all([
+    supabase
+      .from("v_rubric_criteria_flat")
+      .select("*")
+      .in(
+        "criterion_id",
+        rows.map((r) => r.criterion_id),
+      ),
+    // The reviewer's complete observation: their evidence is read from where
+    // they cited it, never copied onto the trainer's row.
+    supabase
+      .from("v_raw_observation")
+      .select("criterion_id, evidence")
+      .eq("calibration_id", evaluationId),
+  ]);
+
+  const evidenceByCriterion = new Map(
+    ((observations ?? []) as { criterion_id: string; evidence: EvidenceItem[] }[]).map((o) => [
+      o.criterion_id,
+      o.evidence ?? [],
+    ]),
+  );
 
   const byId = new Map(
     ((criteria ?? []) as Record<string, unknown>[]).map((c) => [c["criterion_id"] as string, c]),
@@ -124,6 +148,7 @@ export async function getCalibrationRows(evaluationId: string): Promise<Calibrat
         raw_value: r.raw_value,
         raw_remark: r.raw_remark,
         raw_updated_at: r.raw_updated_at,
+        raw_evidence: evidenceByCriterion.get(r.criterion_id) ?? [],
         value: r.value,
         remark: r.remark,
         calibrated_at: r.calibrated_at,
