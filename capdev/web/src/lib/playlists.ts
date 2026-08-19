@@ -105,9 +105,13 @@ export async function addCallToPlaylist(
   callId: string,
   personId: string,
 ): Promise<void> {
-  const { error } = await supabase
-    .from("playlist_call")
-    .insert({ playlist_id: playlistId, call_id: callId, added_by: personId });
+  // Playlists hold knowledge assets now, not only calls; a call is one kind.
+  const { error } = await supabase.from("playlist_item").insert({
+    playlist_id: playlistId,
+    subject_type: "call",
+    subject_id: callId,
+    added_by: personId,
+  });
   if (error && !error.message.includes("duplicate")) throw new Error(error.message);
 }
 
@@ -116,10 +120,11 @@ export async function removeCallFromPlaylist(
   callId: string,
 ): Promise<void> {
   const { error } = await supabase
-    .from("playlist_call")
+    .from("playlist_item")
     .delete()
     .eq("playlist_id", playlistId)
-    .eq("call_id", callId);
+    .eq("subject_type", "call")
+    .eq("subject_id", callId);
   if (error) throw new Error(error.message);
 }
 
