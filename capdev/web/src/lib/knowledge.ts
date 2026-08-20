@@ -523,6 +523,8 @@ export interface SourceOption {
   /** How many case studies already draw on this. Never a reason to exclude it. */
   used_in_case_studies: number;
   used_by: string | null;
+  /** A correction is in flight. Worth knowing, never a reason to withhold it. */
+  under_revision: boolean;
 }
 
 export interface CaseStudyEvidence {

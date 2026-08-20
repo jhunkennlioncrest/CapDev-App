@@ -295,6 +295,9 @@ function NewCaseStudy({
                         {o.failed_criteria > 0 &&
                           ` · ${o.failed_criteria} criteri${o.failed_criteria === 1 ? "on" : "a"} not met`}
                         {o.reviewer_name && ` · reviewed by ${o.reviewer_name}`}
+                        {o.under_revision && (
+                          <span className="text-[#96690A]"> · being revised</span>
+                        )}
                         {o.used_in_case_studies > 0 &&
                           ` · already used by ${o.used_in_case_studies} case stud${
                             o.used_in_case_studies === 1 ? "y" : "ies"
