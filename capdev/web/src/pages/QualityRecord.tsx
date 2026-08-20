@@ -1,4 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import { useSpeakers } from "@/lib/useSpeakers";
+import { shortSpeaker, resolveSpeakersInText } from "@/lib/speakers";
 import {
   getRecordScores,
   getRepositoryRecord,
@@ -34,6 +36,7 @@ interface Props {
  */
 export function QualityRecord({ callId, session, onBack, onOpenCall }: Props): JSX.Element {
   const [record, setRecord] = useState<RepositoryRow | null>(null);
+  const speakers = useSpeakers(callId);
   const [scores, setScores] = useState<RecordScore[]>([]);
   const [evidence, setEvidence] = useState<Record<string, Evidence[]>>({});
   const [moments, setMoments] = useState<Moment[]>([]);
@@ -256,7 +259,9 @@ export function QualityRecord({ callId, session, onBack, onOpenCall }: Props): J
                           ? `▶ ${formatDuration(x.start_ms)}–${formatDuration(x.end_ms)}`
                           : "cited"}
                       </button>
-                      <p className="text-[12.5px] text-ink-70 whitespace-pre-line">{x.excerpt}</p>
+                      <p className="text-[12.5px] text-ink-70 whitespace-pre-line">
+                        {resolveSpeakersInText(x.excerpt, speakers)}
+                      </p>
                       {x.note && <p className="text-[12.5px] mt-0.5">{x.note}</p>}
                     </div>
                   ))}
@@ -325,7 +330,11 @@ export function QualityRecord({ callId, session, onBack, onOpenCall }: Props): J
                     {seg.start_ms === null ? "—" : formatDuration(seg.start_ms)}
                   </span>
                   <span className="text-[13.5px]">
-                    {seg.speaker && <span className="font-semibold mr-1">{seg.speaker}:</span>}
+                    {seg.speaker && (
+                      <span className="font-semibold mr-1">
+                        {shortSpeaker(seg.speaker, speakers)}:
+                      </span>
+                    )}
                     {seg.text}
                   </span>
                 </li>

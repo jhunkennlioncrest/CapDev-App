@@ -1,4 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { resolveSpeakersInText } from "@/lib/speakers";
+import { useSpeakers } from "@/lib/useSpeakers";
 import { CalibrationPanel } from "@/pages/CalibrationPanel";
 import {
   getScores,
@@ -511,6 +513,8 @@ function CriterionRow({
   canCalibrate?: boolean;
   onRemoveEvidence: (id: string) => void;
 }): JSX.Element {
+  // Evidence carries its own call, so the mapping comes from there.
+  const speakers = useSpeakers(evidence[0]?.call_id ?? null);
   const [showGuidance, setShowGuidance] = useState(false);
   const needsRemark = value === "no" && !remark.trim();
 
@@ -632,7 +636,9 @@ function CriterionRow({
                   )}
                   {ev.moment_id && " · also a teaching moment"}
                 </p>
-                <p className="text-[12.5px] text-ink-70 whitespace-pre-line">{ev.excerpt}</p>
+                <p className="text-[12.5px] text-ink-70 whitespace-pre-line">
+                  {resolveSpeakersInText(ev.excerpt, speakers)}
+                </p>
                 {ev.note && <p className="text-[12.5px] mt-0.5">{ev.note}</p>}
               </div>
               {!locked && (

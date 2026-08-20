@@ -1,4 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { resolveSpeakersInText } from "@/lib/speakers";
+import { useSpeakers } from "@/lib/useSpeakers";
 import { supabase } from "@/lib/supabase";
 import { formatDuration, formatDate } from "@/lib/format";
 import { MOMENT_TYPES, type Moment, type MomentType } from "@/lib/moments";
@@ -196,6 +198,7 @@ function MomentCard({
   codeById: Record<string, string>;
   onOpenCall: () => void;
 }): JSX.Element {
+  const speakers = useSpeakers(moment.call_id);
   const [url, setUrl] = useState<string | null>(null);
   const [loadingUrl, setLoadingUrl] = useState(false);
 
@@ -262,7 +265,7 @@ function MomentCard({
 
       {moment.excerpt && (
         <p className="text-[12.5px] text-ink-70 mt-2 border-l-2 border-rule pl-3 whitespace-pre-line">
-          {moment.excerpt}
+          {resolveSpeakersInText(moment.excerpt, speakers)}
         </p>
       )}
 

@@ -1,4 +1,6 @@
 import { useState } from "react";
+import { useSpeakers } from "@/lib/useSpeakers";
+import { shortSpeaker } from "@/lib/speakers";
 import {
   attachEvidence,
   createMoment,
@@ -65,6 +67,8 @@ export function ClipDialog({
 
   const startMs = chosen.length ? (chosen[0]?.start_ms ?? null) : null;
   const endMs = chosen.length ? (chosen[chosen.length - 1]?.end_ms ?? null) : null;
+  // The same mapping the main transcript uses — not a private copy.
+  const speakers = useSpeakers(callId);
   const excerpt = excerptFrom(chosen);
 
   function toggleLine(i: number): void {
@@ -194,7 +198,11 @@ export function ClipDialog({
                       {seg.start_ms === null ? "—" : formatDuration(seg.start_ms)}
                     </span>
                     <span className="text-[13px]">
-                      {seg.speaker && <span className="font-semibold mr-1">{seg.speaker}:</span>}
+                      {seg.speaker && (
+                          <span className="font-semibold mr-1">
+                            {shortSpeaker(seg.speaker, speakers)}:
+                          </span>
+                        )}
                       {seg.text}
                     </span>
                   </button>

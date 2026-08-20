@@ -1,4 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { resolveSpeakersInText, type SpeakerMap } from "@/lib/speakers";
+import { useSpeakers } from "@/lib/useSpeakers";
 import {
   adoptReviewerEvidence,
   agreeWithRemaining,
@@ -54,6 +56,9 @@ export function CalibrationPanel({
   onPlayClip?: (startMs: number, endMs: number) => void;
   onCountsChanged?: (decided: number, total: number) => void;
 }): JSX.Element {
+  // One mapping for the whole panel: reviewer evidence and trainer evidence
+  // resolve through exactly the same source as the main transcript.
+  const speakers = useSpeakers(callId);
   const [rows, setRows] = useState<CalibrationRow[]>([]);
   const [summary, setSummary] = useState<CalibrationSummary | null>(null);
   const [loading, setLoading] = useState(true);
@@ -216,6 +221,7 @@ export function CalibrationPanel({
                     onDecide={onDecide}
                     onPlayClip={onPlayClip}
                     onRefresh={load}
+                    speakers={speakers}
                   />
                 </div>
               );
@@ -293,6 +299,7 @@ function CriterionRow({
   onDecide,
   onPlayClip,
   onRefresh,
+  speakers,
 }: {
   row: CalibrationRow;
   callId: string;
@@ -300,6 +307,7 @@ function CriterionRow({
   onDecide: (row: CalibrationRow, value: Answer, note?: string) => Promise<void>;
   onPlayClip?: (startMs: number, endMs: number) => void;
   onRefresh: () => Promise<void>;
+  speakers: SpeakerMap;
 }): JSX.Element {
   const [note, setNote] = useState(row.remark);
   const [showNote, setShowNote] = useState(false);
@@ -398,8 +406,8 @@ function CriterionRow({
                       )
                     )}
                     {ev.excerpt && (
-                      <p className="text-[12.5px] text-ink-70 leading-relaxed mt-0.5">
-                        &ldquo;{ev.excerpt}&rdquo;
+                      <p className="text-[12.5px] text-ink-70 leading-relaxed mt-0.5 whitespace-pre-line">
+                        &ldquo;{resolveSpeakersInText(ev.excerpt, speakers)}&rdquo;
                       </p>
                     )}
                   </li>
@@ -478,6 +486,7 @@ function CriterionRow({
               }}
               onPlayClip={onPlayClip}
               onRefresh={onRefresh}
+              speakers={speakers}
             />
           ) : (
             <>
@@ -524,6 +533,7 @@ function TrainerJustification({
   onCommitNote,
   onPlayClip,
   onRefresh,
+  speakers,
 }: {
   row: CalibrationRow;
   callId: string;
@@ -533,6 +543,7 @@ function TrainerJustification({
   onCommitNote: () => void;
   onPlayClip?: (startMs: number, endMs: number) => void;
   onRefresh: () => Promise<void>;
+  speakers: SpeakerMap;
 }): JSX.Element {
   const [adding, setAdding] = useState(false);
   const [from, setFrom] = useState("");
@@ -621,8 +632,8 @@ function TrainerJustification({
                 </button>
               </div>
               {ev.excerpt && (
-                <p className="text-[12.5px] text-ink-70 leading-relaxed">
-                  &ldquo;{ev.excerpt}&rdquo;
+                <p className="text-[12.5px] text-ink-70 leading-relaxed whitespace-pre-line">
+                  &ldquo;{resolveSpeakersInText(ev.excerpt, speakers)}&rdquo;
                 </p>
               )}
             </li>

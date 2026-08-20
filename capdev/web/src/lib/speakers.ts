@@ -81,3 +81,62 @@ export function shortSpeaker(label: string | null, speakers: SpeakerMap): string
   const identity = speakers[label];
   return identity?.name?.trim() || identity?.role?.trim() || label;
 }
+
+// ---------------------------------------------------------------------------
+// Resolving names in stored text
+//
+// Excerpts are captured as "Speaker 1: ..." — the provider's label, which is a
+// stable reference key rather than a name. Resolving it at display time is
+// what lets a rename reach evidence that was cited months earlier, without
+// rewriting a single stored record.
+
+/** Matches a leading speaker label on a line: "Speaker 1: hello". */
+const LABEL_AT_LINE_START = /^([^:\n]{1,60}):\s?/;
+
+/**
+ * Replaces speaker labels in stored text with their assigned names.
+ *
+ * Only substitutes labels the transcript actually knows about, and only at the
+ * start of a line, so dialogue containing a colon is left alone. An excerpt
+ * spanning several speakers resolves each line independently.
+ */
+export function resolveSpeakersInText(text: string, speakers: SpeakerMap): string {
+  if (!text || Object.keys(speakers).length === 0) return text;
+
+  return text
+    .split("\n")
+    .map((line) => {
+      const match = LABEL_AT_LINE_START.exec(line);
+      if (!match) return line;
+
+      const label = match[1]?.trim();
+      if (!label || !speakers[label]) return line;
+
+      const resolved = shortSpeaker(label, speakers);
+      if (resolved === label) return line;
+
+      return `${resolved}: ${line.slice(match[0].length)}`;
+    })
+    .join("\n");
+}
+
+/**
+ * The canonical speaker mapping for a call.
+ *
+ * One source, read from the transcript, shared by every surface that shows
+ * transcript-derived text. A screen that needs speaker names asks for this
+ * rather than keeping its own copy — which is what stops the two drifting
+ * apart the way they just did.
+ */
+export async function speakersForCall(callId: string): Promise<SpeakerMap> {
+  const { data } = await supabase
+    .from("transcript")
+    .select("speakers")
+    .eq("call_id", callId)
+    .is("archived_at", null)
+    .eq("status", "available")
+    .order("version_no", { ascending: false })
+    .limit(1)
+    .maybeSingle<{ speakers: SpeakerMap }>();
+  return data?.speakers ?? {};
+}
