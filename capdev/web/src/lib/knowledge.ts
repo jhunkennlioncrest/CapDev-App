@@ -520,7 +520,9 @@ export interface SourceOption {
   evidence_count: number;
   moment_count: number;
   failed_criteria: number;
+  /** How many case studies already draw on this. Never a reason to exclude it. */
   used_in_case_studies: number;
+  used_by: string | null;
 }
 
 export interface CaseStudyEvidence {
@@ -546,6 +548,13 @@ export interface CaseStudyMoment {
   call_id: string;
 }
 
+/**
+ * Completed evaluations available as source material.
+ *
+ * Every submitted calibration, regardless of how many case studies already
+ * cite it. A great call may teach several different lessons, so prior use is
+ * reported and never filtered.
+ */
 export async function listSourceOptions(): Promise<SourceOption[]> {
   const { data, error } = await supabase
     .from("v_case_study_source_options")
@@ -554,6 +563,24 @@ export async function listSourceOptions(): Promise<SourceOption[]> {
     .limit(200);
   if (error) throw new Error(error.message);
   return (data ?? []) as SourceOption[];
+}
+
+export interface CallCaseStudy {
+  case_study_id: string;
+  title: string;
+  status: string;
+  author_name: string | null;
+  updated_at: string;
+}
+
+/** Which case studies already draw on a call — a list, not a status. */
+export async function caseStudiesForCall(callId: string): Promise<CallCaseStudy[]> {
+  const { data } = await supabase
+    .from("v_call_case_studies")
+    .select("case_study_id, title, status, author_name, updated_at")
+    .eq("call_id", callId)
+    .order("updated_at", { ascending: false });
+  return (data ?? []) as CallCaseStudy[];
 }
 
 /** Links everything the source evaluations already contain. Copies nothing. */

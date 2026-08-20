@@ -171,7 +171,19 @@ function NewCaseStudy({
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    void listSourceOptions().then(setOptions);
+    // A failed load must not look like an empty list. Before, a rejected
+    // promise left this stuck on "Loading…", which reads as "the evaluation
+    // is no longer available" — the opposite of what happened.
+    void listSourceOptions()
+      .then(setOptions)
+      .catch((e: unknown) => {
+        setOptions([]);
+        setError(
+          e instanceof Error
+            ? `Could not load completed evaluations: ${e.message}`
+            : String(e),
+        );
+      });
   }, []);
 
   const chosen = (options ?? []).filter((o) => selected.includes(o.evaluation_id));
@@ -245,6 +257,10 @@ function NewCaseStudy({
         </p>
       ) : (
         <>
+          <p className="text-[12px] text-ink-45 mb-2">
+            An evaluation can be used by as many case studies as it has lessons
+            to teach.
+          </p>
           <ul className="border border-rule-soft rounded bg-card divide-y divide-rule-soft max-h-96 overflow-auto mb-4">
             {options.map((o) => {
               const on = selected.includes(o.evaluation_id);
@@ -279,7 +295,10 @@ function NewCaseStudy({
                         {o.failed_criteria > 0 &&
                           ` · ${o.failed_criteria} criteri${o.failed_criteria === 1 ? "on" : "a"} not met`}
                         {o.reviewer_name && ` · reviewed by ${o.reviewer_name}`}
-                        {o.used_in_case_studies > 0 && " · already used"}
+                        {o.used_in_case_studies > 0 &&
+                          ` · already used by ${o.used_in_case_studies} case stud${
+                            o.used_in_case_studies === 1 ? "y" : "ies"
+                          }`}
                       </span>
                       <span className="block text-[11.5px] text-ink-45 mt-1">
                         {o.evidence_count > 0 && (

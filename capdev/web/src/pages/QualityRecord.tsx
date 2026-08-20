@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import { caseStudiesForCall, type CallCaseStudy } from "@/lib/knowledge";
 import { useSpeakers } from "@/lib/useSpeakers";
 import { shortSpeaker, resolveSpeakersInText } from "@/lib/speakers";
 import {
@@ -37,6 +38,7 @@ interface Props {
 export function QualityRecord({ callId, session, onBack, onOpenCall }: Props): JSX.Element {
   const [record, setRecord] = useState<RepositoryRow | null>(null);
   const speakers = useSpeakers(callId);
+  const [caseStudies, setCaseStudies] = useState<CallCaseStudy[]>([]);
   const [scores, setScores] = useState<RecordScore[]>([]);
   const [evidence, setEvidence] = useState<Record<string, Evidence[]>>({});
   const [moments, setMoments] = useState<Moment[]>([]);
@@ -77,6 +79,9 @@ export function QualityRecord({ callId, session, onBack, onOpenCall }: Props): J
     } finally {
       setLoading(false);
     }
+  }, [callId]);
+  useEffect(() => {
+    if (callId) void caseStudiesForCall(callId).then(setCaseStudies);
   }, [callId]);
 
   useEffect(() => {
@@ -349,13 +354,24 @@ export function QualityRecord({ callId, session, onBack, onOpenCall }: Props): J
         <div className="grid sm:grid-cols-3 gap-4 text-[13px]">
           <div>
             <span className="block font-mono text-[10px] tracking-[0.14em] uppercase text-ink-45 mb-1">
-              Case study
+              Case studies
+              {caseStudies.length > 1 && (
+                <span className="ml-1.5">{caseStudies.length}</span>
+              )}
             </span>
-            {record.case_study_status === "not_created"
-              ? "Not created"
-              : record.case_study_status === "draft"
-                ? "Draft"
-                : "Published"}
+            {/* A list, not a status: this evaluation may teach several
+                different lessons, each its own case study. */}
+            {caseStudies.length === 0 ? (
+              <span className="text-ink-45">None yet</span>
+            ) : (
+              <span>
+                {caseStudies.map((cs) => (
+                  <span key={cs.case_study_id} className="block">
+                    {cs.title}
+                  </span>
+                ))}
+              </span>
+            )}
           </div>
           <div>
             <span className="block font-mono text-[10px] tracking-[0.14em] uppercase text-ink-45 mb-1">
