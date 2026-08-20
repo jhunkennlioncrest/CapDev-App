@@ -1,6 +1,11 @@
 import { useCallback, useEffect, useState } from "react";
 import {
+  addReference,
   addSection,
+  getReferences,
+  listCitable,
+  REFERENCE_TYPES,
+  removeReference,
   createArticle,
   getArticle,
   getArticleSections,
@@ -10,8 +15,11 @@ import {
   SECTION_KINDS,
   updateArticle,
   updateSection,
+  type ArticleReference,
   type ArticleSection,
+  type CitableAsset,
   type KnowledgeArticle,
+  type ReferenceType,
 } from "@/lib/knowledge";
 import { formatDate } from "@/lib/format";
 import type { Session } from "@/lib/types";
@@ -182,13 +190,19 @@ export function KnowledgeArticles({
 function ArticleEditor({ id, onBack }: { id: string; onBack: () => void }): JSX.Element {
   const [article, setArticle] = useState<KnowledgeArticle | null>(null);
   const [sections, setSections] = useState<ArticleSection[]>([]);
+  const [references, setReferences] = useState<ArticleReference[]>([]);
   const [addingKind, setAddingKind] = useState(false);
   const [savedAt, setSavedAt] = useState<Date | null>(null);
 
   const load = useCallback(async (): Promise<void> => {
-    const [a, s] = await Promise.all([getArticle(id), getArticleSections(id)]);
+    const [a, s, r] = await Promise.all([
+      getArticle(id),
+      getArticleSections(id),
+      getReferences(id),
+    ]);
     setArticle(a);
     setSections(s);
+    setReferences(r);
     if (a) void recordArticleView(id, a.view_count);
   }, [id]);
 
@@ -269,6 +283,12 @@ function ArticleEditor({ id, onBack }: { id: string; onBack: () => void }): JSX.
           }}
         />
       ))}
+
+      <ReferenceList
+        articleId={id}
+        references={references}
+        onChanged={load}
+      />
 
       <div className="mt-4">
         {addingKind ? (
@@ -352,5 +372,191 @@ function SectionEditor({
         Remove section
       </button>
     </section>
+  );
+}
+
+
+/**
+ * What this article points at.
+ *
+ * Citing rather than restating: a teaching moment referenced by three articles
+ * is still one moment, so correcting it corrects all three. Grouped by type
+ * because "Examples" and "Source evaluations" are different claims about why
+ * something is here.
+ */
+function ReferenceList({
+  articleId,
+  references,
+  onChanged,
+}: {
+  articleId: string;
+  references: ArticleReference[];
+  onChanged: () => Promise<void>;
+}): JSX.Element {
+  const [picking, setPicking] = useState<ReferenceType | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  return (
+    <section className="mt-8 border-t border-rule pt-5">
+      <h3 className="font-display text-xl mb-1">Referenced knowledge</h3>
+      <p className="text-[13px] text-ink-70 mb-3">
+        Point at what already exists rather than repeating it here.
+      </p>
+
+      {error && <p className="text-[13px] text-[#AC3A2A] mb-2">{error}</p>}
+
+      {REFERENCE_TYPES.map(({ value, plural }) => {
+        const ofType = references.filter((r) => r.subject_type === value);
+        if (ofType.length === 0) return null;
+        return (
+          <div key={value} className="mb-3">
+            <p className="font-mono text-[10px] tracking-[0.14em] uppercase text-ink-45 mb-1.5">
+              {plural}
+            </p>
+            <ul className="space-y-1">
+              {ofType.map((r) => (
+                <li
+                  key={r.id}
+                  className="flex justify-between items-start gap-3 border-l-2 border-rule pl-2.5"
+                >
+                  <span className="text-[13.5px] min-w-0">
+                    <span className="text-ink-45 mr-1">&rarr;</span>
+                    {r.title}
+                    {r.subtitle && (
+                      <span className="text-[12px] text-ink-45 block ml-4">{r.subtitle}</span>
+                    )}
+                  </span>
+                  <button
+                    onClick={() => {
+                      void removeReference(r.id).then(onChanged);
+                    }}
+                    className="text-[11.5px] text-ink-45 hover:text-[#AC3A2A] underline underline-offset-2 shrink-0"
+                  >
+                    remove
+                  </button>
+                </li>
+              ))}
+            </ul>
+          </div>
+        );
+      })}
+
+      {picking ? (
+        <AssetPicker
+          type={picking}
+          alreadyCited={references
+            .filter((r) => r.subject_type === picking)
+            .map((r) => r.subject_id)}
+          onPick={async (assetId) => {
+            try {
+              await addReference({
+                articleId,
+                subjectType: picking,
+                subjectId: assetId,
+                sortOrder: references.length + 1,
+              });
+              await onChanged();
+            } catch (e) {
+              setError(e instanceof Error ? e.message : String(e));
+            }
+          }}
+          onClose={() => setPicking(null)}
+        />
+      ) : (
+        <div className="flex gap-2 flex-wrap mt-2">
+          {REFERENCE_TYPES.map(({ value, label }) => (
+            <button
+              key={value}
+              onClick={() => setPicking(value)}
+              className="border border-rule rounded px-3 py-1.5 text-[12.5px] hover:bg-ground-2"
+            >
+              Cite a {label.toLowerCase()}
+            </button>
+          ))}
+        </div>
+      )}
+    </section>
+  );
+}
+
+function AssetPicker({
+  type,
+  alreadyCited,
+  onPick,
+  onClose,
+}: {
+  type: ReferenceType;
+  alreadyCited: string[];
+  onPick: (id: string) => Promise<void>;
+  onClose: () => void;
+}): JSX.Element {
+  const [assets, setAssets] = useState<CitableAsset[] | null>(null);
+  const [query, setQuery] = useState("");
+
+  useEffect(() => {
+    void listCitable(type).then(setAssets);
+  }, [type]);
+
+  const spec = REFERENCE_TYPES.find((r) => r.value === type);
+  const visible = (assets ?? []).filter((a) => {
+    const q = query.trim().toLowerCase();
+    if (!q) return true;
+    return (
+      a.title.toLowerCase().includes(q) || (a.subtitle ?? "").toLowerCase().includes(q)
+    );
+  });
+
+  return (
+    <div className="border border-ink rounded bg-card px-4 py-3.5 mt-2">
+      <div className="flex justify-between items-center gap-3 mb-2.5">
+        <p className="text-[13px] font-semibold">Cite a {spec?.label.toLowerCase()}</p>
+        <button
+          onClick={onClose}
+          className="text-[12.5px] text-ink-45 underline underline-offset-2 hover:text-ink"
+        >
+          Done
+        </button>
+      </div>
+
+      <input
+        value={query}
+        onChange={(e) => setQuery(e.target.value)}
+        placeholder="Search"
+        className="w-full border border-rule rounded px-2.5 py-1.5 bg-white text-[13.5px] mb-2"
+      />
+
+      {assets === null ? (
+        <p className="text-[13px] text-ink-45">Loading&hellip;</p>
+      ) : visible.length === 0 ? (
+        <p className="text-[13px] text-ink-45">
+          {assets.length === 0
+            ? `No ${spec?.plural.toLowerCase()} yet.`
+            : "Nothing matches that."}
+        </p>
+      ) : (
+        <ul className="divide-y divide-rule-soft max-h-64 overflow-auto">
+          {visible.map((a) => {
+            const cited = alreadyCited.includes(a.id);
+            return (
+              <li key={a.id}>
+                <button
+                  disabled={cited}
+                  onClick={() => void onPick(a.id)}
+                  className="w-full text-left px-1 py-2 hover:bg-ground disabled:opacity-40 disabled:hover:bg-transparent"
+                >
+                  <span className="text-[13.5px]">{a.title}</span>
+                  {cited && (
+                    <span className="text-[11.5px] text-ink-45 ml-2">already cited</span>
+                  )}
+                  {a.subtitle && (
+                    <span className="block text-[12px] text-ink-45">{a.subtitle}</span>
+                  )}
+                </button>
+              </li>
+            );
+          })}
+        </ul>
+      )}
+    </div>
   );
 }

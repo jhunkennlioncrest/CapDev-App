@@ -2,13 +2,18 @@ import { useState } from "react";
 import { SubNav } from "@/components/AppShell";
 import { MomentLibrary } from "@/pages/MomentLibrary";
 import { QualityRepository } from "@/pages/QualityRepository";
-import { LearningPlaylists } from "@/pages/LearningPlaylists";
 import { LibraryHome } from "@/pages/LibraryHome";
 import { CaseStudies } from "@/pages/CaseStudies";
 import { KnowledgeArticles } from "@/pages/KnowledgeArticles";
 import type { Session } from "@/lib/types";
 
-type Tab = "home" | "moments" | "playlists" | "evaluations" | "casestudies" | "knowledge";
+// Learning Playlists are PARKED, not removed. The tables, migrations and the
+// LearningPlaylists page all remain; they are simply out of the Library while
+// the distinction from a Case Study is not yet worth a separate layer. When
+// ordered learning paths are actually needed — onboarding, a training course,
+// a curriculum — a playlist becomes a sequence rather than another container,
+// and this tab comes back. See docs/parked-learning-playlists.md.
+type Tab = "home" | "moments" | "evaluations" | "casestudies" | "knowledge";
 
 /**
  * The Library — the organisation's learning hub.
@@ -41,7 +46,6 @@ export function LibraryWorkspace({
           tabs={[
             { key: "home" as const, label: "Overview" },
             { key: "moments" as const, label: "Teaching moments" },
-            { key: "playlists" as const, label: "Learning playlists" },
             { key: "evaluations" as const, label: "Completed evaluations" },
             { key: "casestudies" as const, label: "Case studies" },
             { key: "knowledge" as const, label: "Knowledge articles" },
@@ -64,11 +68,9 @@ export function LibraryWorkspace({
             setOpenArticle(id);
             setTab("knowledge");
           }}
-          onOpenPlaylist={() => setTab("playlists")}
         />
       )}
       {tab === "moments" && <MomentLibrary onOpenCall={onOpenCall} onBack={() => setTab("moments")} embedded />}
-      {tab === "playlists" && <LearningPlaylists session={session} onOpenCall={onOpenCall} />}
       {tab === "evaluations" && (
         <QualityRepository onOpenRecord={onOpenRecord} onBack={() => setTab("moments")} embedded />
       )}

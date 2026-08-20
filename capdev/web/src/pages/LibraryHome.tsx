@@ -1,18 +1,16 @@
 import { useCallback, useEffect, useState } from "react";
 import { listCaseStudies, listArticles, type CaseStudy, type KnowledgeArticle } from "@/lib/knowledge";
-import { listPlaylists, type PlaylistSummary } from "@/lib/playlists";
 import { listRepository, type RepositoryRow } from "@/lib/repository";
 import { supabase } from "@/lib/supabase";
 import { formatDate, formatDuration } from "@/lib/format";
 import { MOMENT_TYPES, type Moment } from "@/lib/moments";
 
 interface Props {
-  onOpenTab: (tab: "moments" | "playlists" | "casestudies" | "knowledge" | "evaluations") => void;
+  onOpenTab: (tab: "moments" | "casestudies" | "knowledge" | "evaluations") => void;
   onOpenCall: (id: string) => void;
   onOpenRecord: (id: string) => void;
   onOpenCaseStudy: (id: string) => void;
   onOpenArticle: (id: string) => void;
-  onOpenPlaylist: (id: string) => void;
 }
 
 /**
@@ -29,29 +27,25 @@ export function LibraryHome({
   onOpenRecord,
   onOpenCaseStudy,
   onOpenArticle,
-  onOpenPlaylist,
 }: Props): JSX.Element {
   const [moments, setMoments] = useState<Moment[]>([]);
-  const [playlists, setPlaylists] = useState<PlaylistSummary[]>([]);
   const [studies, setStudies] = useState<CaseStudy[]>([]);
   const [articles, setArticles] = useState<KnowledgeArticle[]>([]);
   const [evaluations, setEvaluations] = useState<RepositoryRow[]>([]);
   const [loading, setLoading] = useState(true);
 
   const load = useCallback(async (): Promise<void> => {
-    const [m, p, cs, a, r] = await Promise.all([
+    const [m, cs, a, r] = await Promise.all([
       supabase
         .from("v_moment_list")
         .select("*")
         .order("created_at", { ascending: false })
         .limit(4),
-      listPlaylists("learning"),
       listCaseStudies(),
       listArticles(),
       listRepository(),
     ]);
     setMoments((m.data ?? []) as Moment[]);
-    setPlaylists(p);
     setStudies(cs);
     setArticles(a);
     setEvaluations(r.slice(0, 4));
@@ -61,10 +55,8 @@ export function LibraryHome({
   useEffect(() => {
     void load();
   }, [load]);
-
-  const featured = playlists[0];
   const isEmpty =
-    moments.length === 0 && studies.length === 0 && articles.length === 0 && playlists.length === 0;
+    moments.length === 0 && studies.length === 0 && articles.length === 0;
 
   if (loading) {
     return <p className="max-w-6xl mx-auto px-6 py-10 text-ink-45 text-sm">Loading&hellip;</p>;
@@ -82,34 +74,6 @@ export function LibraryHome({
         </div>
       ) : (
         <>
-          {featured && (
-            <section className="mt-2">
-              <SectionHead
-                title="Start here"
-                action="All playlists"
-                onAction={() => onOpenTab("playlists")}
-              />
-              <button
-                onClick={() => onOpenPlaylist(featured.id)}
-                className="w-full text-left bg-card border border-ink rounded px-6 py-5 hover:bg-ground-2 transition-colors"
-              >
-                <p className="font-mono text-[10px] tracking-[0.14em] uppercase text-ink-45">
-                  Learning playlist
-                </p>
-                <h3 className="font-display text-2xl mt-1">{featured.name}</h3>
-                {featured.description && (
-                  <p className="text-[14px] text-ink-70 mt-1 max-w-2xl">
-                    {featured.description}
-                  </p>
-                )}
-                <p className="text-[12px] text-ink-45 mt-2">
-                  {featured.call_count} item{featured.call_count === 1 ? "" : "s"}
-                  {featured.author_name && ` · put together by ${featured.author_name}`}
-                </p>
-              </button>
-            </section>
-          )}
-
           {moments.length > 0 && (
             <section className="mt-8">
               <SectionHead

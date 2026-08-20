@@ -330,3 +330,171 @@ export async function removePlaylistItem(id: string): Promise<void> {
   const { error } = await supabase.from("playlist_item").delete().eq("id", id);
   if (error) throw new Error(error.message);
 }
+
+
+// ---------------------------------------------------------------------------
+// Citations
+//
+// An article points at knowledge that already exists rather than restating it.
+// A teaching moment cited in three articles is still one moment: correct it
+// once and every article that cites it is correct too.
+
+export type ReferenceType =
+  | "moment"
+  | "case_study"
+  | "evaluation"
+  | "rubric_criterion";
+
+export interface ArticleReference {
+  id: string;
+  article_id: string;
+  subject_type: ReferenceType;
+  subject_id: string;
+  note: string;
+  sort_order: number;
+  /** Resolved for display; never stored on the reference. */
+  title?: string;
+  subtitle?: string;
+}
+
+export const REFERENCE_TYPES: {
+  value: ReferenceType;
+  label: string;
+  plural: string;
+}[] = [
+  { value: "moment", label: "Teaching moment", plural: "Teaching moments" },
+  { value: "case_study", label: "Case study", plural: "Case studies" },
+  { value: "evaluation", label: "Completed evaluation", plural: "Source evaluations" },
+  { value: "rubric_criterion", label: "Rubric criterion", plural: "Rubric criteria" },
+];
+
+/** A thing that can be cited, in a shape the picker can list. */
+export interface CitableAsset {
+  id: string;
+  title: string;
+  subtitle: string;
+}
+
+export async function listCitable(type: ReferenceType): Promise<CitableAsset[]> {
+  if (type === "moment") {
+    const { data } = await supabase
+      .from("v_moment_list")
+      .select("id, title, coaching_note, moment_type")
+      .eq("status", "active")
+      .order("created_at", { ascending: false })
+      .limit(200);
+    return ((data ?? []) as {
+      id: string;
+      title: string;
+      coaching_note: string;
+      moment_type: string;
+    }[]).map((m) => ({
+      id: m.id,
+      title: m.title,
+      subtitle: m.moment_type,
+    }));
+  }
+
+  if (type === "case_study") {
+    const { data } = await supabase
+      .from("v_case_study_list")
+      .select("id, title, summary")
+      .eq("status", "active")
+      .order("updated_at", { ascending: false })
+      .limit(200);
+    return ((data ?? []) as { id: string; title: string; summary: string }[]).map((c) => ({
+      id: c.id,
+      title: c.title,
+      subtitle: c.summary,
+    }));
+  }
+
+  if (type === "evaluation") {
+    const { data } = await supabase
+      .from("v_quality_repository")
+      .select("evaluation_id, call_title, agent_name, overall_score")
+      .order("submitted_at", { ascending: false })
+      .limit(200);
+    return ((data ?? []) as {
+      evaluation_id: string;
+      call_title: string;
+      agent_name: string | null;
+      overall_score: number | null;
+    }[]).map((e) => ({
+      id: e.evaluation_id,
+      title: e.call_title,
+      subtitle: [e.agent_name, e.overall_score === null ? null : `${e.overall_score}%`]
+        .filter(Boolean)
+        .join(" · "),
+    }));
+  }
+
+  // Criteria come from the active rubric: citing a retired criterion would
+  // point readers at a standard no longer in force.
+  const { data } = await supabase
+    .from("v_rubric_criteria_flat")
+    .select("criterion_id, code, label, statement, status")
+    .eq("status", "active")
+    .order("sort_order");
+  return ((data ?? []) as {
+    criterion_id: string;
+    code: string;
+    label: string;
+    statement: string;
+  }[]).map((c) => ({
+    id: c.criterion_id,
+    title: `${c.code}${c.label ? ` — ${c.label}` : ""}`,
+    subtitle: c.statement,
+  }));
+}
+
+export async function getReferences(articleId: string): Promise<ArticleReference[]> {
+  const { data, error } = await supabase
+    .from("knowledge_article_reference")
+    .select("*")
+    .eq("article_id", articleId)
+    .order("sort_order");
+  if (error) throw new Error(error.message);
+
+  const refs = (data ?? []) as ArticleReference[];
+  if (refs.length === 0) return [];
+
+  // Resolve titles by type, so a renamed asset shows its current name.
+  const resolved = await Promise.all(
+    REFERENCE_TYPES.map(async ({ value }) => {
+      const ofType = refs.filter((r) => r.subject_type === value);
+      if (ofType.length === 0) return [];
+      const all = await listCitable(value);
+      const byId = new Map(all.map((a) => [a.id, a]));
+      return ofType.map((r) => ({
+        ...r,
+        title: byId.get(r.subject_id)?.title ?? "(no longer available)",
+        subtitle: byId.get(r.subject_id)?.subtitle ?? "",
+      }));
+    }),
+  );
+
+  const flat = resolved.flat();
+  return refs.map((r) => flat.find((x) => x.id === r.id) ?? r);
+}
+
+export async function addReference(params: {
+  articleId: string;
+  subjectType: ReferenceType;
+  subjectId: string;
+  sortOrder: number;
+}): Promise<void> {
+  const { error } = await supabase.from("knowledge_article_reference").insert({
+    article_id: params.articleId,
+    subject_type: params.subjectType,
+    subject_id: params.subjectId,
+    sort_order: params.sortOrder,
+  });
+  // Citing the same thing twice is a no-op, not a failure.
+  if (error && !error.message.includes("duplicate")) throw new Error(error.message);
+}
+
+export async function removeReference(id: string): Promise<void> {
+  const { error } = await supabase.from("knowledge_article_reference").delete().eq("id", id);
+  if (error) throw new Error(error.message);
+}
