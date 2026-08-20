@@ -498,3 +498,167 @@ export async function removeReference(id: string): Promise<void> {
   const { error } = await supabase.from("knowledge_article_reference").delete().eq("id", id);
   if (error) throw new Error(error.message);
 }
+
+
+// ---------------------------------------------------------------------------
+// Case studies derived from completed evaluations
+//
+// The evaluation is what happened; the case study is what we learned from it.
+// Everything the evaluation already holds is referenced, never retyped and
+// never copied — so a bounded clip keeps its exact boundaries and the
+// evaluation stays the authoritative record.
+
+export interface SourceOption {
+  evaluation_id: string;
+  call_id: string;
+  call_title: string;
+  agent_name: string | null;
+  overall_score: number | null;
+  submitted_at: string;
+  reviewer_name: string | null;
+  trainer_name: string | null;
+  evidence_count: number;
+  moment_count: number;
+  failed_criteria: number;
+  used_in_case_studies: number;
+}
+
+export interface CaseStudyEvidence {
+  link_id: string;
+  evidence_id: string;
+  call_id: string | null;
+  call_title: string | null;
+  start_ms: number | null;
+  end_ms: number | null;
+  excerpt: string;
+  criterion_code: string | null;
+  added_here: boolean;
+}
+
+export interface CaseStudyMoment {
+  link_id: string;
+  moment_id: string;
+  title: string;
+  coaching_note: string;
+  moment_type: string;
+  start_ms: number | null;
+  end_ms: number | null;
+  call_id: string;
+}
+
+export async function listSourceOptions(): Promise<SourceOption[]> {
+  const { data, error } = await supabase
+    .from("v_case_study_source_options")
+    .select("*")
+    .order("submitted_at", { ascending: false })
+    .limit(200);
+  if (error) throw new Error(error.message);
+  return (data ?? []) as SourceOption[];
+}
+
+/** Links everything the source evaluations already contain. Copies nothing. */
+export async function seedFromSources(
+  caseStudyId: string,
+): Promise<{ evidence: number; moments: number }> {
+  const { data, error } = await supabase.rpc("seed_case_study_from_sources", {
+    p_case_study_id: caseStudyId,
+  });
+  if (error) throw new Error(error.message);
+  const row = (data as { evidence_linked: number; moments_linked: number }[])?.[0];
+  return { evidence: row?.evidence_linked ?? 0, moments: row?.moments_linked ?? 0 };
+}
+
+export async function getCaseStudyEvidence(id: string): Promise<CaseStudyEvidence[]> {
+  const { data, error } = await supabase
+    .from("v_case_study_evidence")
+    .select("*")
+    .eq("case_study_id", id)
+    .order("sort_order");
+  if (error) throw new Error(error.message);
+  return (data ?? []) as CaseStudyEvidence[];
+}
+
+export async function getCaseStudyMoments(id: string): Promise<CaseStudyMoment[]> {
+  const { data, error } = await supabase
+    .from("v_case_study_moments")
+    .select("*")
+    .eq("case_study_id", id)
+    .order("sort_order");
+  if (error) throw new Error(error.message);
+  return (data ?? []) as CaseStudyMoment[];
+}
+
+/** Removes something from the case study. The underlying record is untouched. */
+export async function unlinkEvidence(linkId: string): Promise<void> {
+  const { error } = await supabase.from("case_study_evidence").delete().eq("id", linkId);
+  if (error) throw new Error(error.message);
+}
+
+export async function unlinkMoment(linkId: string): Promise<void> {
+  const { error } = await supabase.from("case_study_moment").delete().eq("id", linkId);
+  if (error) throw new Error(error.message);
+}
+
+export async function linkMoment(params: {
+  caseStudyId: string;
+  momentId: string;
+  sortOrder: number;
+}): Promise<void> {
+  const { error } = await supabase.from("case_study_moment").insert({
+    case_study_id: params.caseStudyId,
+    moment_id: params.momentId,
+    sort_order: params.sortOrder,
+  });
+  if (error && !error.message.includes("duplicate")) throw new Error(error.message);
+}
+
+/**
+ * Builds an opening draft of the situation and what happened.
+ *
+ * Written as prose a person would recognise, not dumped fields: the trainer
+ * should be editing a paragraph, not deleting a database printout. Why it
+ * mattered and what to do instead are deliberately left empty — those are the
+ * parts that make it a case study.
+ */
+export function draftNarrative(
+  sources: SourceOption[],
+  failures: { code: string; statement: string; remark: string }[],
+): { scenario: string; whatHappened: string; title: string } {
+  const first = sources[0];
+  const multi = sources.length > 1;
+
+  const scenario = multi
+    ? `This looks at ${sources.length} calls where a similar pattern appeared: ` +
+      sources.map((s) => `${s.call_title} (${s.agent_name ?? "rep not recorded"})`).join(", ") +
+      "."
+    : first
+      ? `${first.agent_name ?? "The representative"} was handling ${first.call_title}. ` +
+        `The call was reviewed by ${first.reviewer_name ?? "a reviewer"} and calibrated by ` +
+        `${first.trainer_name ?? "a trainer"}.`
+      : "";
+
+  const lines: string[] = [];
+  if (failures.length > 0) {
+    lines.push(
+      failures.length === 1
+        ? "Calibration found one criterion was not met:"
+        : `Calibration found ${failures.length} criteria were not met:`,
+    );
+    for (const f of failures) {
+      lines.push(`· ${f.statement}${f.remark ? ` — ${f.remark}` : ""}`);
+    }
+  } else if (first) {
+    lines.push(
+      `Calibration found every applicable criterion was met` +
+        (first.overall_score !== null ? `, scoring ${first.overall_score}%.` : "."),
+    );
+  }
+
+  const title = multi
+    ? ""
+    : first
+      ? `${first.call_title} — what it teaches`
+      : "";
+
+  return { scenario, whatHappened: lines.join("\n"), title };
+}
