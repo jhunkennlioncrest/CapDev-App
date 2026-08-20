@@ -233,7 +233,7 @@ export function CallDetail({ callId, session, onBack }: Props): JSX.Element {
       </header>
 
       <div className="pt-3 pb-1">
-        <CallTimeline status={call.workflow_status} />
+        <CallTimeline status={call.workflow_status} callId={call.id} />
       </div>
 
       {error && <p className="mt-5 text-[13px] text-[#AC3A2A]">{error}</p>}

@@ -1,10 +1,13 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { supabase } from "@/lib/supabase";
 import { SubNav } from "@/components/AppShell";
 import { getQueue, startCalibration, type QueueItem } from "@/lib/evaluation";
-import { listPlaylists, getPlaylistContents, type PlaylistSummary, type PlaylistCall } from "@/lib/playlists";
 import { formatDate, formatDuration } from "@/lib/format";
 
-type Tab = "ready" | "playlists" | "inprogress";
+// The trainer's workspace answers one question: what should I calibrate next?
+// Reviewer groupings are how a reviewer organises their own week — they are
+// not the shape of the trainer's day, so they live in the Library instead.
+type Tab = "ready" | "inprogress";
 
 interface Props {
   onOpenCall: (id: string) => void;
@@ -20,19 +23,22 @@ interface Props {
 export function CalibrationWorkspace({ onOpenCall }: Props): JSX.Element {
   const [tab, setTab] = useState<Tab>("ready");
   const [queue, setQueue] = useState<QueueItem[]>([]);
-  const [playlists, setPlaylists] = useState<PlaylistSummary[]>([]);
-  const [expanded, setExpanded] = useState<string | null>(null);
-  const [contents, setContents] = useState<Record<string, PlaylistCall[]>>({});
   const [escalationsOnly, setEscalationsOnly] = useState(false);
   const [starting, setStarting] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [completedToday, setCompletedToday] = useState(0);
   const [loading, setLoading] = useState(true);
 
   const load = useCallback(async (): Promise<void> => {
     try {
-      const [q, p] = await Promise.all([getQueue(), listPlaylists("raw_qa")]);
+      const q = await getQueue();
       setQueue(q);
-      setPlaylists(p.filter((x) => x.call_count > 0));
+      // Throughput matters to a trainer deciding whether to keep going.
+      const { data: counts } = await supabase
+        .from("v_calibration_queue_counts")
+        .select("completed_today")
+        .maybeSingle<{ completed_today: number }>();
+      setCompletedToday(counts?.completed_today ?? 0);
       setError(null);
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
@@ -62,7 +68,6 @@ export function CalibrationWorkspace({ onOpenCall }: Props): JSX.Element {
   );
   const inProgress = useMemo(() => queue.filter((q) => q.status === "in_progress"), [queue]);
   const escalations = queue.filter((q) => q.is_high_risk && q.status === "waiting").length;
-  const oldest = waiting.length > 0 ? waiting[0]?.days_waiting ?? 0 : 0;
 
   /** Random pick, escalations first — the sampling a calibration session needs. */
   function pickRandom(): void {
@@ -72,20 +77,6 @@ export function CalibrationWorkspace({ onOpenCall }: Props): JSX.Element {
     const source = escalated.length > 0 ? escalated : pool;
     const choice = source[Math.floor(Math.random() * source.length)];
     if (choice) void begin(choice.raw_evaluation_id, choice.call_id);
-  }
-
-  async function toggle(id: string): Promise<void> {
-    if (expanded === id) {
-      setExpanded(null);
-      return;
-    }
-    setExpanded(id);
-    if (!contents[id]) {
-      setContents((c) => ({ ...c, [id]: [] }));
-      setContents((c) => ({ ...c, [id]: [] }));
-      const rows = await getPlaylistContents(id);
-      setContents((c) => ({ ...c, [id]: rows }));
-    }
   }
 
   return (
@@ -111,21 +102,16 @@ export function CalibrationWorkspace({ onOpenCall }: Props): JSX.Element {
 
       {queue.length > 0 && (
         <div className="grid grid-cols-2 sm:grid-cols-4 border-y border-rule mb-5">
-          <Figure value={String(queue.filter((q) => q.status === "waiting").length)} caption="waiting" />
+          <Figure value={String(waiting.length)} caption="waiting" />
           <Figure value={String(inProgress.length)} caption="in progress" />
+          <Figure value={String(completedToday)} caption="completed today" />
           <Figure value={String(escalations)} caption="escalations" warn={escalations > 0} />
-          <Figure
-            value={oldest < 1 ? "today" : `${Math.floor(oldest)}d`}
-            caption="oldest waiting"
-            warn={oldest >= 3}
-          />
         </div>
       )}
 
       <SubNav
         tabs={[
           { key: "ready" as const, label: "Ready", count: waiting.length },
-          { key: "playlists" as const, label: "By reviewer", count: playlists.length },
           { key: "inprogress" as const, label: "In progress", count: inProgress.length },
         ]}
         active={tab}
@@ -182,78 +168,11 @@ export function CalibrationWorkspace({ onOpenCall }: Props): JSX.Element {
             ))}
           </ul>
         )
-      ) : playlists.length === 0 ? (
-        <Empty title="No completed reviews yet" body="Reviewers' weekly work appears here as they submit." />
       ) : (
-        <ul className="space-y-2.5">
-          {playlists.map((p) => (
-            <li key={p.id} className="bg-card border border-rule-soft rounded">
-              <button
-                onClick={() => void toggle(p.id)}
-                className="w-full px-4 py-3.5 flex justify-between items-center gap-4 text-left"
-              >
-                <div className="min-w-0">
-                  <h3 className="font-display text-lg">{p.name}</h3>
-                  <p className="text-[12px] text-ink-45 mt-0.5">
-                    {p.call_count} review{p.call_count === 1 ? "" : "s"} &middot;{" "}
-                    {p.calibrated_count} calibrated
-                    {p.escalation_count > 0 && ` · ${p.escalation_count} escalation`}
-                  </p>
-                </div>
-                <span className="text-[12px] text-ink-45 shrink-0">
-                  {expanded === p.id ? "Hide" : "Open"}
-                </span>
-              </button>
-
-              {expanded === p.id && (
-                <ul className="border-t border-rule-soft divide-y divide-rule-soft">
-                  {(contents[p.id] ?? []).map((c) => {
-                    const done = c.calibration_status === "submitted";
-                    return (
-                      <li
-                        key={c.call_id}
-                        className="px-4 py-2.5 flex justify-between items-center gap-3 flex-wrap"
-                      >
-                        <span className="text-[13.5px] min-w-0">
-                          {c.call_title}
-                          {c.is_high_risk && (
-                            <span className="text-[11px] text-[#AC3A2A] ml-2">escalation</span>
-                          )}
-                          {c.flagged_count ? (
-                            <span className="text-[11px] text-ink-45 ml-2">
-                              {c.flagged_count} flagged
-                            </span>
-                          ) : null}
-                        </span>
-                        <span className="flex items-center gap-3 shrink-0">
-                          {done && (
-                            <span className="font-mono text-[11.5px] text-ink-45">
-                              {c.overall_score}%
-                            </span>
-                          )}
-                          <button
-                            onClick={() =>
-                              done || !c.raw_evaluation_id
-                                ? onOpenCall(c.call_id)
-                                : void begin(c.raw_evaluation_id, c.call_id)
-                            }
-                            className={`rounded px-3 py-1 text-[12.5px] ${
-                              done
-                                ? "border border-rule hover:bg-ground-2"
-                                : "bg-ink text-ground border border-ink hover:opacity-85"
-                            }`}
-                          >
-                            {done ? "View" : "Calibrate"}
-                          </button>
-                        </span>
-                      </li>
-                    );
-                  })}
-                </ul>
-              )}
-            </li>
-          ))}
-        </ul>
+        <Empty
+          title="Nothing in progress"
+          body="Calibrations you have started appear here."
+        />
       )}
     </div>
   );
