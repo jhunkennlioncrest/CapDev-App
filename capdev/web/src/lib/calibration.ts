@@ -285,3 +285,40 @@ export function parseClock(text: string): number | null {
     return (Number(parts[0]) * 3600 + Number(parts[1]) * 60 + Number(parts[2])) * 1000;
   return null;
 }
+
+
+// ---------------------------------------------------------------------------
+// Teaching moments, captured during calibration
+//
+// The trainer is already listening to the call and has already cited the
+// passage. Making them re-select it in the Library later is asking for the
+// same work twice.
+
+export const MOMENT_KINDS: { value: string; label: string; hint: string }[] = [
+  { value: "model", label: "Model", hint: "Do it exactly like this" },
+  { value: "recovery", label: "Recovery", hint: "It went wrong, the rep pulled it back" },
+  { value: "miss", label: "Miss", hint: "The standard was dropped" },
+  { value: "cautionary", label: "Cautionary", hint: "Passed, but only just" },
+];
+
+/**
+ * Builds a teaching moment from evidence that already exists.
+ *
+ * The clip keeps the exact boundaries it was cited with, and the criterion and
+ * calibration travel with it.
+ */
+export async function momentFromEvidence(params: {
+  evidenceId: string;
+  title: string;
+  coachingNote: string;
+  momentType: string;
+}): Promise<string> {
+  const { data, error } = await supabase.rpc("moment_from_evidence", {
+    p_evidence_id: params.evidenceId,
+    p_title: params.title,
+    p_coaching_note: params.coachingNote,
+    p_moment_type: params.momentType,
+  });
+  if (error) throw new Error(error.message);
+  return data as string;
+}

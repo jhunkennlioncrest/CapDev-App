@@ -3,6 +3,8 @@ import { resolveSpeakersInText, type SpeakerMap } from "@/lib/speakers";
 import { useSpeakers } from "@/lib/useSpeakers";
 import {
   adoptReviewerEvidence,
+  MOMENT_KINDS,
+  momentFromEvidence,
   agreeWithRemaining,
   citeEvidence,
   decide,
@@ -48,6 +50,7 @@ export function CalibrationPanel({
   session,
   onPlayClip,
   onCountsChanged,
+  onNeedEvidence,
 }: {
   evaluationId: string;
   callId: string;
@@ -55,6 +58,8 @@ export function CalibrationPanel({
   /** Bounded playback: starts at the quote and stops at its end. */
   onPlayClip?: (startMs: number, endMs: number) => void;
   onCountsChanged?: (decided: number, total: number) => void;
+  /** Opens the transcript picker when there is nothing cited yet. */
+  onNeedEvidence?: (criterionId: string) => void;
 }): JSX.Element {
   // One mapping for the whole panel: reviewer evidence and trainer evidence
   // resolve through exactly the same source as the main transcript.
@@ -222,6 +227,7 @@ export function CalibrationPanel({
                     onPlayClip={onPlayClip}
                     onRefresh={load}
                     speakers={speakers}
+                    onNeedEvidence={(r) => onNeedEvidence?.(r.criterion_id)}
                   />
                 </div>
               );
@@ -300,6 +306,7 @@ function CriterionRow({
   onPlayClip,
   onRefresh,
   speakers,
+  onNeedEvidence,
 }: {
   row: CalibrationRow;
   callId: string;
@@ -308,6 +315,7 @@ function CriterionRow({
   onPlayClip?: (startMs: number, endMs: number) => void;
   onRefresh: () => Promise<void>;
   speakers: SpeakerMap;
+  onNeedEvidence: (row: CalibrationRow) => void;
 }): JSX.Element {
   const [note, setNote] = useState(row.remark);
   const [showNote, setShowNote] = useState(false);
@@ -471,6 +479,16 @@ function CriterionRow({
           </div>
 
           {spec && <p className="text-[12px] text-ink-45 mt-2">{spec.meaning}</p>}
+
+          {/* Teachable is independent of agreement: an excellent call teaches
+              as much as a disputed one. So this sits outside the justification
+              section, which only appears on disagreement. */}
+          <TeachThis
+            row={row}
+            onPlayClip={onPlayClip}
+            onRefresh={onRefresh}
+            onNeedEvidence={onNeedEvidence}
+          />
 
           {/* Disagreeing replaces the reviewer's conclusion with a different
               one, so it carries its own evidence and its own reasoning. */}
@@ -726,6 +744,187 @@ function TrainerJustification({
           &#9888; A justification is required when you change an answer.
         </p>
       )}
+    </div>
+  );
+}
+
+
+/**
+ * Capturing a teaching moment without leaving calibration.
+ *
+ * Uses evidence the trainer has already cited — theirs or the reviewer's,
+ * since a reviewer may well have quoted exactly the right passage. If nothing
+ * is cited yet, it sends them to the transcript picker first rather than
+ * asking them to describe a clip that does not exist.
+ */
+function TeachThis({
+  row,
+  onPlayClip,
+  onRefresh,
+  onNeedEvidence,
+}: {
+  row: CalibrationRow;
+  onPlayClip?: (startMs: number, endMs: number) => void;
+  onRefresh: () => Promise<void>;
+  onNeedEvidence: (row: CalibrationRow) => void;
+}): JSX.Element {
+  const [open, setOpen] = useState(false);
+  const [chosen, setChosen] = useState<string | null>(null);
+  const [title, setTitle] = useState("");
+  const [note, setNote] = useState("");
+  const [kind, setKind] = useState("model");
+  const [busy, setBusy] = useState(false);
+  const [done, setDone] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  // Both sides are teachable. The reviewer citing a passage does not stop it
+  // being worth teaching — it often means it was worth noticing.
+  const candidates = [
+    ...row.trainer_evidence.map((e) => ({ ...e, from: "yours" })),
+    ...row.raw_evidence.map((e) => ({ ...e, from: "reviewer's" })),
+  ];
+
+  function start(): void {
+    if (candidates.length === 0) {
+      onNeedEvidence(row);
+      return;
+    }
+    setChosen(candidates[0]?.id ?? null);
+    setOpen(true);
+  }
+
+  async function save(): Promise<void> {
+    if (!chosen) return;
+    setBusy(true);
+    try {
+      await momentFromEvidence({
+        evidenceId: chosen,
+        title: title.trim(),
+        coachingNote: note.trim(),
+        momentType: kind,
+      });
+      setOpen(false);
+      setTitle("");
+      setNote("");
+      setDone(true);
+      await onRefresh();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  if (!open) {
+    return (
+      <div className="mt-2">
+        <button
+          onClick={start}
+          className="text-[12px] text-ink-45 underline underline-offset-2 hover:text-ink"
+        >
+          {done ? "Capture another teaching moment" : "+ Teaching moment"}
+        </button>
+        {done && (
+          <span className="text-[11.5px] text-[#1F7A4D] ml-2">saved to the Library</span>
+        )}
+        {error && <p className="text-[12px] text-[#AC3A2A] mt-1">{error}</p>}
+      </div>
+    );
+  }
+
+  return (
+    <div className="mt-2.5 border border-ink rounded bg-card px-3.5 py-3">
+      <p className="font-mono text-[10px] tracking-[0.14em] uppercase text-ink-45 mb-2.5">
+        New teaching moment
+      </p>
+
+      {error && <p className="text-[12.5px] text-[#AC3A2A] mb-2">{error}</p>}
+
+      <input
+        value={title}
+        onChange={(e) => setTitle(e.target.value)}
+        placeholder="Name it so people can find it"
+        className="w-full border border-rule rounded px-2.5 py-1.5 bg-white text-[13.5px] mb-2"
+      />
+      <textarea
+        value={note}
+        onChange={(e) => setNote(e.target.value)}
+        rows={2}
+        placeholder="What should someone learn from this?"
+        className="w-full border border-rule rounded px-2.5 py-2 bg-white text-[13px] mb-2"
+      />
+
+      <div className="flex gap-1.5 flex-wrap mb-2.5">
+        {MOMENT_KINDS.map((k) => (
+          <button
+            key={k.value}
+            onClick={() => setKind(k.value)}
+            title={k.hint}
+            className={`border rounded-full px-2.5 py-1 text-[12px] ${
+              kind === k.value ? "bg-ink text-ground border-ink" : "border-rule hover:bg-ground-2"
+            }`}
+          >
+            {k.label}
+          </button>
+        ))}
+      </div>
+
+      <p className="text-[11.5px] text-ink-45 mb-1.5">
+        Clip {candidates.length > 1 && "— pick which passage"}
+      </p>
+      <ul className="space-y-1 mb-3">
+        {candidates.map((c) => (
+          <li key={c.id}>
+            <label className="flex items-start gap-2 cursor-pointer">
+              <input
+                type="radio"
+                checked={chosen === c.id}
+                onChange={() => setChosen(c.id)}
+                className="mt-1"
+              />
+              <span className="min-w-0">
+                <span className="font-mono text-[11.5px] text-accent">
+                  {formatClock(c.start_ms)}
+                  {c.end_ms !== null && `–${formatClock(c.end_ms)}`}
+                </span>
+                <span className="text-[11px] text-ink-45 ml-1.5">{c.from}</span>
+                {c.start_ms !== null && onPlayClip && (
+                  <button
+                    onClick={(e) => {
+                      e.preventDefault();
+                      onPlayClip(c.start_ms ?? 0, c.end_ms ?? (c.start_ms ?? 0) + 15000);
+                    }}
+                    className="text-[11px] text-accent underline underline-offset-2 ml-2"
+                  >
+                    play
+                  </button>
+                )}
+                {c.excerpt && (
+                  <span className="block text-[12px] text-ink-70 leading-relaxed">
+                    &ldquo;{c.excerpt}&rdquo;
+                  </span>
+                )}
+              </span>
+            </label>
+          </li>
+        ))}
+      </ul>
+
+      <div className="flex gap-2">
+        <button
+          onClick={() => void save()}
+          disabled={!title.trim() || !chosen || busy}
+          className="bg-ink text-ground border border-ink rounded px-3.5 py-1.5 text-[12.5px] font-medium disabled:opacity-40"
+        >
+          {busy ? "Saving…" : "Save teaching moment"}
+        </button>
+        <button
+          onClick={() => setOpen(false)}
+          className="border border-rule rounded px-3.5 py-1.5 text-[12.5px]"
+        >
+          Cancel
+        </button>
+      </div>
     </div>
   );
 }

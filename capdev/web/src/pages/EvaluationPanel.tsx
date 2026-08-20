@@ -243,6 +243,12 @@ export function EvaluationPanel({
           callId={callId}
           session={session}
           onPlayClip={onPlayClip}
+          onNeedEvidence={(criterionId) => {
+            // Nothing cited yet, so send them to the transcript first — the
+            // same picker used everywhere else.
+            const c = allCriteria.find((x) => x.id === criterionId);
+            if (c) setClipFor(c);
+          }}
         />
       ) : (
       rubric.sections.map((section) => {
