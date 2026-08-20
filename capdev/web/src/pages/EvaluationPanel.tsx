@@ -63,6 +63,12 @@ export function EvaluationPanel({
   const [loading, setLoading] = useState(true);
   const [savedAt, setSavedAt] = useState<Date | null>(null);
   const [submitting, setSubmitting] = useState(false);
+  // During validation the carried-forward reviewer answers make every
+  // criterion look answered. What counts is whether the trainer has
+  // decided each one, which only the calibration panel knows.
+  const [calibrated, setCalibrated] = useState<{ decided: number; total: number } | null>(
+    null,
+  );
   const remarkTimers = useRef<Record<string, number>>({});
   const [scoreIds, setScoreIds] = useState<Record<string, string>>({});
   const [evidence, setEvidence] = useState<Record<string, Evidence[]>>({});
@@ -109,8 +115,8 @@ export function EvaluationPanel({
     () => (rubric?.sections ?? []).flatMap((s) => s.criteria),
     [rubric],
   );
-  const answered = allCriteria.filter((c) => values[c.id]).length;
-  const total = allCriteria.length;
+  const answered = calibrated ? calibrated.decided : allCriteria.filter((c) => values[c.id]).length;
+  const total = calibrated ? calibrated.total : allCriteria.length;
   const locked = evaluation?.status === "submitted";
 
   const reloadEvidence = useCallback(async (evId: string): Promise<void> => {
@@ -243,6 +249,9 @@ export function EvaluationPanel({
           callId={callId}
           session={session}
           onPlayClip={onPlayClip}
+          onCountsChanged={(decided, totalCount) =>
+            setCalibrated({ decided, total: totalCount })
+          }
           onNeedEvidence={(criterionId) => {
             // Nothing cited yet, so send them to the transcript first — the
             // same picker used everywhere else.
@@ -459,20 +468,31 @@ export function EvaluationPanel({
           )}
         </div>
         {!locked && (
-          <button
-            onClick={() => void submit()}
-            disabled={submitting || answered < total}
-            className="bg-ink text-ground border border-ink rounded px-4 py-2 text-sm font-medium hover:opacity-85 disabled:opacity-40"
-            title={answered < total ? `${total - answered} items still unanswered` : undefined}
-          >
-            {submitting
-              ? "Submitting…"
-              : answered < total
-                ? `${total - answered} left to answer`
-                : isRaw
-                ? "Submit observations"
-                : "Submit evaluation"}
-          </button>
+          <div className="flex items-center gap-3 flex-wrap justify-end">
+            {/* The guard refuses for good reasons; those reasons belong beside
+                the button that was pressed, not at the top of the page. */}
+            {error && (
+              <p className="text-[13px] text-[#AC3A2A] max-w-md text-right">{error}</p>
+            )}
+            <button
+              onClick={() => void submit()}
+              disabled={submitting || answered < total}
+              className="bg-ink text-ground border border-ink rounded px-4 py-2 text-sm font-medium hover:opacity-85 disabled:opacity-40"
+              title={
+                answered < total
+                  ? `${total - answered} criteria still to decide`
+                  : undefined
+              }
+            >
+              {submitting
+                ? "Submitting…"
+                : answered < total
+                  ? `${total - answered} left to ${calibrated ? "decide" : "answer"}`
+                  : isRaw
+                    ? "Submit observations"
+                    : "Submit evaluation"}
+            </button>
+          </div>
         )}
       </div>
     </div>

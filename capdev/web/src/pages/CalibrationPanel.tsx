@@ -235,6 +235,39 @@ export function CalibrationPanel({
           </section>
         );
       })}
+      {(undecided > 0 || outstanding.length > 0) && (
+        <div className="border border-[#96690A] rounded bg-card px-4 py-3.5 mt-6">
+          <p className="text-[13px] font-semibold mb-1">
+            Not ready to submit yet
+          </p>
+          {undecided > 0 && (
+            <p className="text-[13px] text-ink-70">
+              {undecided} criteri{undecided === 1 ? "on has" : "a have"} not been
+              decided. The reviewer&rsquo;s answers are shown but count as yours
+              only once you agree or change them.
+            </p>
+          )}
+          {outstanding.length > 0 && (
+            <p className="text-[13px] text-ink-70 mt-1">
+              {outstanding.length} changed criteri
+              {outstanding.length === 1 ? "on needs" : "a need"} evidence and a
+              justification:{" "}
+              <span className="font-mono text-[12px]">
+                {outstanding.map((r) => r.code).join(", ")}
+              </span>
+            </p>
+          )}
+          {undecided > 0 && (
+            <button
+              onClick={() => void onAgreeRest()}
+              disabled={busy}
+              className="bg-ink text-ground border border-ink rounded px-3.5 py-1.5 text-[13px] font-medium mt-2.5 disabled:opacity-40"
+            >
+              {busy ? "Agreeing…" : `Agree with the remaining ${undecided}`}
+            </button>
+          )}
+        </div>
+      )}
     </div>
   );
 }
