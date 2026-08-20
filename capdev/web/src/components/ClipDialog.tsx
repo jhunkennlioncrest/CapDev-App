@@ -4,7 +4,7 @@ import { shortSpeaker } from "@/lib/speakers";
 import {
   attachEvidence,
   createMoment,
-  excerptFrom,
+  contiguousRuns,
   MOMENT_TYPES,
   type MomentType,
 } from "@/lib/moments";
@@ -24,6 +24,8 @@ interface Props {
   allCriteria: Criterion[];
   /** Raw reviewers cite evidence but do not create teaching moments. */
   allowMoment?: boolean;
+  /** Lets each range be previewed, bounded, before it is saved. */
+  onPlayClip?: (startMs: number, endMs: number) => void;
   onClose: () => void;
   onSaved: () => void;
 }
@@ -45,6 +47,7 @@ export function ClipDialog({
   criterion,
   allCriteria,
   allowMoment = true,
+  onPlayClip,
   onClose,
   onSaved,
 }: Props): JSX.Element {
@@ -65,11 +68,11 @@ export function ClipDialog({
     .map((i) => segments[i])
     .filter((s): s is Segment => !!s);
 
-  const startMs = chosen.length ? (chosen[0]?.start_ms ?? null) : null;
-  const endMs = chosen.length ? (chosen[chosen.length - 1]?.end_ms ?? null) : null;
+  // Each contiguous stretch is its own clip. A gap means the audio in between
+  // was never cited, so first-to-last would play something nobody selected.
+  const runs = contiguousRuns(selected, segments);
   // The same mapping the main transcript uses — not a private copy.
   const speakers = useSpeakers(callId);
-  const excerpt = excerptFrom(chosen);
 
   function toggleLine(i: number): void {
     setSelected((s) => (s.includes(i) ? s.filter((x) => x !== i) : [...s, i]));
@@ -87,7 +90,7 @@ export function ClipDialog({
   }
 
   async function save(): Promise<void> {
-    if (chosen.length === 0) {
+    if (runs.length === 0) {
       setError("Select the lines this is about.");
       return;
     }
@@ -98,43 +101,49 @@ export function ClipDialog({
     setSaving(true);
     setError(null);
     try {
-      let momentId: string | null = null;
+      // One evidence record per selected range, so each stays independently
+      // bounded and independently playable.
+      for (const [n, run] of runs.entries()) {
+        let momentId: string | null = null;
 
-      if (alsoMoment) {
-        if (startMs === null || endMs === null) {
-          throw new Error(
-            "These lines have no timecodes, so they can't become a clip. They can still be evidence.",
-          );
+        if (alsoMoment) {
+          if (run.startMs === null || run.endMs === null) {
+            throw new Error(
+              "These lines have no timecodes, so they can't become a clip. They can still be evidence.",
+            );
+          }
+          const moment = await createMoment({
+            orgId: session.person.org_id,
+            personId: session.person.id,
+            callId,
+            transcriptId,
+            // A moment is a single bounded clip, so a gapped selection makes
+            // one per range rather than one clip spanning the gap.
+            title: runs.length > 1 ? `${title} (${n + 1} of ${runs.length})` : title,
+            coachingNote: note,
+            momentType,
+            startMs: run.startMs,
+            endMs: run.endMs,
+            criterionIds,
+            excerpt: run.excerpt,
+          });
+          momentId = moment.id;
         }
-        const moment = await createMoment({
-          orgId: session.person.org_id,
-          personId: session.person.id,
-          callId,
-          transcriptId,
-          title,
-          coachingNote: note,
-          momentType,
-          startMs,
-          endMs,
-          criterionIds,
-          excerpt,
-        });
-        momentId = moment.id;
-      }
 
-      if (scoreId) {
-        await attachEvidence({
-          orgId: session.person.org_id,
-          personId: session.person.id,
-          scoreId,
-          callId,
-          transcriptId,
-          momentId,
-          startMs,
-          endMs,
-          excerpt,
-          note: alsoMoment ? "" : note,
-        });
+        if (scoreId) {
+          await attachEvidence({
+            orgId: session.person.org_id,
+            personId: session.person.id,
+            scoreId,
+            callId,
+            transcriptId,
+            momentId,
+            startMs: run.startMs,
+            endMs: run.endMs,
+            excerpt: run.excerpt,
+            note: alsoMoment ? "" : note,
+          });
+        }
       }
 
       onSaved();
@@ -211,16 +220,41 @@ export function ClipDialog({
             })}
           </ul>
 
-          {chosen.length > 0 && (
-            <p className="font-mono text-[11.5px] text-ink-45 mb-4">
-              {chosen.length} line{chosen.length === 1 ? "" : "s"} selected
-              {startMs !== null && endMs !== null && (
-                <>
-                  {" · "}
-                  {formatDuration(startMs)}–{formatDuration(endMs)} ({formatDuration(endMs - startMs)})
-                </>
+          {/* Shows what will actually be saved. A gapped selection reads as
+              two clips here, before it is committed, not after. */}
+          {runs.length > 0 && (
+            <div className="mb-4">
+              <p className="font-mono text-[11.5px] text-ink-45">
+                {chosen.length} line{chosen.length === 1 ? "" : "s"} selected
+                {runs.length > 1 && ` · ${runs.length} separate clips`}
+              </p>
+              <ul className="mt-1 space-y-0.5">
+                {runs.map((run, n) => (
+                  <li key={run.indices.join("-")} className="font-mono text-[11.5px]">
+                    {runs.length > 1 && (
+                      <span className="text-ink-45 mr-1.5">Evidence {n + 1}</span>
+                    )}
+                    {run.startMs !== null && run.endMs !== null ? (
+                      <button
+                        onClick={() => onPlayClip?.(run.startMs!, run.endMs!)}
+                        className="text-accent hover:underline underline-offset-2"
+                        title="Play just this range"
+                      >
+                        &#9654; {formatDuration(run.startMs)}&ndash;{formatDuration(run.endMs)}
+                      </button>
+                    ) : (
+                      <span className="text-ink-45">no timecode</span>
+                    )}
+                  </li>
+                ))}
+              </ul>
+              {runs.length > 1 && (
+                <p className="text-[11.5px] text-ink-45 mt-1">
+                  Saved as {runs.length} separate clips. The audio between them
+                  is not included.
+                </p>
               )}
-            </p>
+            </div>
           )}
 
           <label className="block mb-4">

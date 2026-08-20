@@ -436,6 +436,7 @@ export function EvaluationPanel({
           criterion={clipFor}
           allCriteria={allCriteria}
           allowMoment={!isRaw}
+          onPlayClip={onPlayClip}
           onClose={() => setClipFor(null)}
           onSaved={() => void reloadEvidence(evaluation.id)}
         />

@@ -39,6 +39,63 @@ export interface Evidence {
   note: string;
 }
 
+/**
+ * A contiguous run of selected transcript lines.
+ *
+ * Evidence must represent exactly what was selected, so a selection with gaps
+ * becomes several runs rather than one span from first to last. The audio
+ * between two runs was never cited and must never play as though it was.
+ */
+export interface SelectionRun {
+  indices: number[];
+  segments: Segment[];
+  startMs: number | null;
+  endMs: number | null;
+  excerpt: string;
+}
+
+/**
+ * Splits selected line indices into contiguous runs.
+ *
+ * Adjacency is by line position, not by timestamp: two consecutive lines are
+ * one run even if the recording has a pause between them, because that is what
+ * the reader selected. A skipped line starts a new run.
+ */
+export function contiguousRuns(
+  selectedIndices: number[],
+  allSegments: Segment[],
+): SelectionRun[] {
+  const sorted = [...new Set(selectedIndices)].sort((a, b) => a - b);
+  if (sorted.length === 0) return [];
+
+  const runs: number[][] = [];
+  let current: number[] = [sorted[0] as number];
+
+  for (let k = 1; k < sorted.length; k++) {
+    const i = sorted[k] as number;
+    const prev = sorted[k - 1] as number;
+    if (i === prev + 1) current.push(i);
+    else {
+      runs.push(current);
+      current = [i];
+    }
+  }
+  runs.push(current);
+
+  return runs.map((indices) => {
+    const segs = indices
+      .map((i) => allSegments[i])
+      .filter((x): x is Segment => Boolean(x));
+    return {
+      indices,
+      segments: segs,
+      startMs: segs[0]?.start_ms ?? null,
+      endMs: segs[segs.length - 1]?.end_ms ?? null,
+      excerpt: excerptFrom(segs),
+    };
+  });
+}
+
 /** Joins the selected transcript lines into a readable excerpt. */
 export function excerptFrom(segments: Segment[]): string {
   return segments
