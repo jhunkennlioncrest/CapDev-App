@@ -87,7 +87,7 @@ export function LibraryHome({
                   const colour =
                     m.moment_type === "model"
                       ? "#1F7A4D"
-                      : m.moment_type === "recovery"
+                      : m.moment_type === "kudos"
                         ? "#2C6E9B"
                         : m.moment_type === "miss"
                           ? "#AC3A2A"

@@ -1,13 +1,19 @@
 import { supabase } from "./supabase";
 import type { Segment } from "./transcript";
 
-export type MomentType = "model" | "recovery" | "miss" | "cautionary";
+export type MomentType = "model" | "kudos" | "miss" | "cautionary";
 
+/**
+ * The four settled categories.
+ *
+ * Curated for teaching value, deliberately not derived from the score — one
+ * call can carry all four at different moments.
+ */
 export const MOMENT_TYPES: { value: MomentType; label: string; hint: string }[] = [
-  { value: "model", label: "Model", hint: "Do it exactly like this" },
-  { value: "recovery", label: "Recovery", hint: "It went wrong, the rep pulled it back" },
-  { value: "miss", label: "Miss", hint: "The standard was dropped" },
-  { value: "cautionary", label: "Cautionary", hint: "Passed, but only just" },
+  { value: "model", label: "Model", hint: "The intended behaviour, demonstrated" },
+  { value: "kudos", label: "Kudos", hint: "Exceptional execution, beyond the requirement" },
+  { value: "miss", label: "Miss", hint: "The expected behaviour was missed or failed" },
+  { value: "cautionary", label: "Cautionary", hint: "Needs attention for risk, impact or coaching" },
 ];
 
 export interface Moment {

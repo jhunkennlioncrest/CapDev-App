@@ -206,7 +206,7 @@ function MomentCard({
   const colour =
     moment.moment_type === "model"
       ? "#1F7A4D"
-      : moment.moment_type === "recovery"
+      : moment.moment_type === "kudos"
         ? "#2C6E9B"
         : moment.moment_type === "miss"
           ? "#AC3A2A"
