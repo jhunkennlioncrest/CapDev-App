@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
+import { CalibrationAccuracySection } from "@/pages/CalibrationAccuracySection";
 import { RepPerformanceSummary } from "@/pages/RepPerformanceSummary";
 import { getQueue } from "@/lib/evaluation";
 import { getRawWorklist } from "@/lib/workflow";
@@ -122,6 +123,11 @@ export function HomeDashboard({
               caption="recent evaluations"
             />
           </div>
+
+          {/* A different question from "average score" above: that is the
+              representative's result, this is how closely the reviewer's
+              observations matched the trainer's final decisions. */}
+          <CalibrationAccuracySection session={session} />
 
           {counts.recent.length > 0 && (
             <section className="mt-7">

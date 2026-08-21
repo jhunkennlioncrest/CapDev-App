@@ -341,22 +341,23 @@ export interface CalibrationComparison {
   variance: string;
   aligned: boolean;
   call_id: string;
+  call_title: string;
   submitted_at: string;
 }
 
 /**
- * Accuracy for one reviewer, or for everyone the caller may see.
+ * Accuracy for everyone the caller is permitted to see.
  *
- * RLS decides the visibility: a reviewer sees their own row, a trainer or
- * manager sees the reviewers they oversee. Nothing is filtered here that the
- * database would not already refuse.
+ * No reviewer filter is passed: the view itself returns a reviewer only their
+ * own row, and returns every reviewer to anyone with calibration.perform.
+ * Filtering here as well would be decoration — the guarantee has to live where
+ * a direct query cannot bypass it.
  */
-export async function calibrationAccuracy(
-  reviewerId?: string,
-): Promise<CalibrationAccuracy[]> {
-  let q = supabase.from("v_calibration_accuracy").select("*");
-  if (reviewerId) q = q.eq("reviewer_id", reviewerId);
-  const { data, error } = await q.order("accuracy", { ascending: false });
+export async function calibrationAccuracy(): Promise<CalibrationAccuracy[]> {
+  const { data, error } = await supabase
+    .from("v_calibration_accuracy")
+    .select("*")
+    .order("accuracy", { ascending: false });
   if (error) throw new Error(error.message);
   return (data ?? []) as CalibrationAccuracy[];
 }
@@ -368,6 +369,7 @@ export async function calibrationDisagreements(
   const { data, error } = await supabase
     .from("v_calibration_comparison")
     .select("*")
+    // Scoped again by the view; this narrows a supervisor's list to one person.
     .eq("reviewer_id", reviewerId)
     .eq("aligned", false)
     .order("submitted_at", { ascending: false })

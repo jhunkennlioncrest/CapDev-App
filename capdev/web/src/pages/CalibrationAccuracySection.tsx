@@ -40,16 +40,15 @@ export function CalibrationAccuracySection({
 
   const load = useCallback(async (): Promise<void> => {
     try {
-      const [a, h] = await Promise.all([
-        calibrationAccuracy(isReviewerOnly ? session.person.id : undefined),
-        isReviewerOnly ? Promise.resolve([]) : calibrationHotspots(),
-      ]);
+      // Both views scope themselves. A reviewer gets their own row and an
+      // empty hotspot list without the client asking for less.
+      const [a, h] = await Promise.all([calibrationAccuracy(), calibrationHotspots()]);
       setRows(a);
       setHotspots(h);
     } catch {
       setRows([]);
     }
-  }, [isReviewerOnly, session.person.id]);
+  }, []);
 
   useEffect(() => {
     void load();
@@ -140,9 +139,10 @@ export function CalibrationAccuracySection({
                         {onOpenCall && (
                           <button
                             onClick={() => onOpenCall(d.call_id)}
-                            className="text-[12px] text-accent underline underline-offset-2"
+                            title={d.call_title}
+                            className="text-[12px] text-accent underline underline-offset-2 shrink-0"
                           >
-                            open
+                            open call
                           </button>
                         )}
                       </div>
