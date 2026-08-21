@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
+import { RepPerformanceSummary } from "@/pages/RepPerformanceSummary";
 import { getQueue } from "@/lib/evaluation";
 import { getRawWorklist } from "@/lib/workflow";
 import { listRepository, statsFrom } from "@/lib/repository";
@@ -25,9 +26,12 @@ interface Counts {
 export function HomeDashboard({
   session,
   onNavigate,
+  onOpenRepPerformance,
 }: {
   session: Session;
   onNavigate: (w: Workspace) => void;
+  /** Rep performance lives under the Dashboard, not as its own workspace. */
+  onOpenRepPerformance?: (repId?: string) => void;
 }): JSX.Element {
   const [counts, setCounts] = useState<Counts | null>(null);
   const canReview = session.permissions.includes("raw_qa.submit");
@@ -138,6 +142,15 @@ export function HomeDashboard({
           )}
         </>
       )}
+      {/* Rep performance summarises completed work. Trainers and managers
+          only: a reviewer making objective observations should not be
+          weighing historical performance at the same time. */}
+      {onOpenRepPerformance &&
+        (session.permissions.includes("calibration.perform") ||
+          session.permissions.includes("organization.manage")) && (
+          <RepPerformanceSummary onOpen={onOpenRepPerformance} />
+        )}
+
     </div>
   );
 }

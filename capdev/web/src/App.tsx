@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { RepPerformance } from "@/pages/RepPerformance";
 import { useSession } from "@/lib/useSession";
 import { AppShell, visibleWorkspaces, type Workspace } from "@/components/AppShell";
 import { SignIn } from "@/pages/SignIn";
@@ -30,6 +31,11 @@ export default function App(): JSX.Element {
     void verifyEnvironment().then(setEnvCheck);
   }, []);
   const [workspace, setWorkspace] = useState<Workspace>("dashboard");
+  // A sub-view of the Dashboard rather than a workspace: management
+  // analytics do not belong in the operational navigation.
+  const [repPerformance, setRepPerformance] = useState<{ open: boolean; repId?: string }>({
+    open: false,
+  });
   const [overlay, setOverlay] = useState<Overlay>(null);
 
   if (envCheck && !envCheck.ok) {
@@ -90,7 +96,22 @@ export default function App(): JSX.Element {
       ) : active === "admin" ? (
         <AdminWorkspace session={session} />
       ) : (
-        <HomeDashboard session={session} onNavigate={setWorkspace} />
+        repPerformance.open ? (
+          <RepPerformance
+            initialRepId={repPerformance.repId ?? null}
+            onBack={() => setRepPerformance({ open: false })}
+            onOpenRecord={(callId) => {
+              setRepPerformance({ open: false });
+              openRecord(callId);
+            }}
+          />
+        ) : (
+          <HomeDashboard
+            session={session}
+            onNavigate={setWorkspace}
+            onOpenRepPerformance={(repId) => setRepPerformance({ open: true, repId })}
+          />
+        )
       )}
     </AppShell>
   );

@@ -22,6 +22,7 @@ import {
 } from "@/lib/admin";
 import { formatDate } from "@/lib/format";
 import { RubricAdmin } from "@/pages/RubricAdmin";
+import { EmployeeAdmin } from "@/pages/EmployeeAdmin";
 import {
   DECLARED_ENVIRONMENT,
   ENVIRONMENT_COLOUR,
@@ -31,7 +32,7 @@ import {
 } from "@/lib/environment";
 import type { Session } from "@/lib/types";
 
-type Tab = "users" | "roles" | "rubrics" | "integrations" | "organization" | "environment";
+type Tab = "users" | "employees" | "roles" | "rubrics" | "integrations" | "organization" | "environment";
 
 /**
  * Administration — the governance layer.
@@ -56,7 +57,8 @@ export function AdminWorkspace({ session }: { session: Session }): JSX.Element {
       <SubNav
         tabs={[
           { key: "users" as const, label: "Users" },
-          { key: "roles" as const, label: "Roles" },
+          { key: "employees" as const, label: "Employees" },
+            { key: "roles" as const, label: "Roles" },
           { key: "rubrics" as const, label: "Rubrics" },
           { key: "integrations" as const, label: "Integrations" },
           { key: "organization" as const, label: "Organization" },
@@ -68,6 +70,7 @@ export function AdminWorkspace({ session }: { session: Session }): JSX.Element {
 
       {tab === "users" && <UsersSection session={session} />}
       {tab === "roles" && <RolesSection session={session} />}
+      {tab === "employees" && <EmployeeAdmin />}
       {tab === "rubrics" && <RubricAdmin />}
       {tab === "integrations" && <IntegrationsSection />}
       {tab === "organization" && <OrganizationSection session={session} />}
