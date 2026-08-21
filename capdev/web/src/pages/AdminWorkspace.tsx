@@ -175,9 +175,14 @@ function UsersSection({ session }: { session: Session }): JSX.Element {
     <div>
       <div className="flex justify-between items-start gap-4 flex-wrap mb-4">
         <p className="text-[13px] text-ink-70 max-w-xl">
-          Adding someone grants access &mdash; it does not email them. Send them
-          the link yourself and they sign in with Google. Only administrators and
-          executives can add or remove people.
+          People who operate CapDev. Representatives whose calls are evaluated
+          are not listed here &mdash; they live under Representatives and need
+          no account.
+          <span className="block mt-1">
+            Adding someone grants access &mdash; it does not email them. Send
+            them the link yourself and they sign in with Google. Only
+            administrators and executives can add or remove people.
+          </span>
         </p>
         {canManage && (
           <button
