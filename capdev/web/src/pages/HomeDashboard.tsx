@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
+import { RiskSection } from "@/pages/RiskSection";
 import { CalibrationAccuracySection } from "@/pages/CalibrationAccuracySection";
 import { RepPerformanceSummary } from "@/pages/RepPerformanceSummary";
 import { getQueue } from "@/lib/evaluation";
@@ -128,6 +129,10 @@ export function HomeDashboard({
               representative's result, this is how closely the reviewer's
               observations matched the trainer's final decisions. */}
           <CalibrationAccuracySection session={session} />
+
+          {/* Separate again from both scoring and calibration accuracy: this
+              asks what needs attention, not how anyone performed. */}
+          <RiskSection session={session} />
 
           {counts.recent.length > 0 && (
             <section className="mt-7">
