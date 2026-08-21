@@ -1,5 +1,9 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { resolveSpeakersInText, type SpeakerMap } from "@/lib/speakers";
+import { TranscriptSelector, excerptForRange } from "@/components/TranscriptSelector";
+import { getTranscript } from "@/lib/calls";
+import type { SelectionRun } from "@/lib/moments";
+import type { Segment } from "@/lib/transcript";
 import { useSpeakers } from "@/lib/useSpeakers";
 import {
   adoptReviewerEvidence,
@@ -64,6 +68,13 @@ export function CalibrationPanel({
   // One mapping for the whole panel: reviewer evidence and trainer evidence
   // resolve through exactly the same source as the main transcript.
   const speakers = useSpeakers(callId);
+  // Loaded once here rather than per criterion: the trainer may cite on any
+  // of them, and refetching the transcript sixteen times would be wasteful.
+  const [segments, setSegments] = useState<Segment[]>([]);
+
+  useEffect(() => {
+    void getTranscript(callId).then((t) => setSegments(t?.segments ?? []));
+  }, [callId]);
   const [rows, setRows] = useState<CalibrationRow[]>([]);
   const [summary, setSummary] = useState<CalibrationSummary | null>(null);
   const [loading, setLoading] = useState(true);
@@ -227,6 +238,7 @@ export function CalibrationPanel({
                     onPlayClip={onPlayClip}
                     onRefresh={load}
                     speakers={speakers}
+                    segments={segments}
                     onNeedEvidence={(r) => onNeedEvidence?.(r.criterion_id)}
                   />
                 </div>
@@ -339,11 +351,13 @@ function CriterionRow({
   onPlayClip,
   onRefresh,
   speakers,
+  segments,
   onNeedEvidence,
 }: {
   row: CalibrationRow;
   callId: string;
   session: Session;
+  segments: Segment[];
   onDecide: (row: CalibrationRow, value: Answer, note?: string) => Promise<void>;
   onPlayClip?: (startMs: number, endMs: number) => void;
   onRefresh: () => Promise<void>;
@@ -538,6 +552,7 @@ function CriterionRow({
               onPlayClip={onPlayClip}
               onRefresh={onRefresh}
               speakers={speakers}
+              segments={segments}
             />
           ) : (
             <>
@@ -585,6 +600,7 @@ function TrainerJustification({
   onPlayClip,
   onRefresh,
   speakers,
+  segments,
 }: {
   row: CalibrationRow;
   callId: string;
@@ -595,8 +611,13 @@ function TrainerJustification({
   onPlayClip?: (startMs: number, endMs: number) => void;
   onRefresh: () => Promise<void>;
   speakers: SpeakerMap;
+  segments: Segment[];
 }): JSX.Element {
   const [adding, setAdding] = useState(false);
+  // Selecting lines is the normal way in; typing a range stays available for
+  // when the trainer knows the timestamp and Raw QA cited nothing.
+  const [mode, setMode] = useState<"select" | "manual">("select");
+  const [runs, setRuns] = useState<SelectionRun[]>([]);
   const [from, setFrom] = useState("");
   const [to, setTo] = useState("");
   const [quote, setQuote] = useState("");
@@ -605,10 +626,57 @@ function TrainerJustification({
   const needsEvidence = row.trainer_evidence.length === 0;
   const needsReason = note.trim().length === 0;
 
-  async function cite(): Promise<void> {
+  /**
+   * Saves the trainer's evidence.
+   *
+   * One record per contiguous run, so two selections stay two passages with
+   * their own timestamps. Merging them would claim the trainer cited the
+   * silence in between.
+   */
+  async function citeSelection(): Promise<void> {
+    if (runs.length === 0) {
+      setError("Select the lines that support your decision.");
+      return;
+    }
+    try {
+      for (const run of runs) {
+        await citeEvidence({
+          orgId: session.person.org_id,
+          personId: session.person.id,
+          scoreId: row.score_id,
+          callId,
+          startMs: run.startMs,
+          endMs: run.endMs,
+          excerpt: run.excerpt,
+        });
+      }
+      setRuns([]);
+      setAdding(false);
+      setError(null);
+      await onRefresh();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    }
+  }
+
+  /**
+   * Manual fallback: the trainer types a range and the transcript is retrieved
+   * for it. They should not have to transcribe what is already on screen.
+   */
+  async function citeManual(): Promise<void> {
     const startMs = parseClock(from);
     if (startMs === null) {
       setError("Give a start time like 9:22.");
+      return;
+    }
+    const endMs = parseClock(to) ?? startMs + 20000;
+    const found = excerptForRange(segments, startMs, endMs);
+
+    // Typed text wins if the trainer wrote something; otherwise the retrieved
+    // passage fills in. Only if neither exists is there nothing to cite.
+    const excerpt = quote.trim() || found?.excerpt || "";
+    if (!excerpt) {
+      setError("No transcript lines fall in that range. Check the times, or paste the quote.");
       return;
     }
     try {
@@ -617,9 +685,9 @@ function TrainerJustification({
         personId: session.person.id,
         scoreId: row.score_id,
         callId,
-        startMs,
-        endMs: parseClock(to) ?? startMs + 20000,
-        excerpt: quote.trim(),
+        startMs: found?.startMs ?? startMs,
+        endMs: found?.endMs ?? endMs,
+        excerpt,
       });
       setFrom("");
       setTo("");
@@ -631,6 +699,7 @@ function TrainerJustification({
       setError(e instanceof Error ? e.message : String(e));
     }
   }
+
 
   async function adopt(ev: EvidenceItem): Promise<void> {
     try {
@@ -700,37 +769,91 @@ function TrainerJustification({
 
       {adding ? (
         <div className="border border-rule rounded bg-white px-3 py-2.5 mb-2.5">
-          <div className="flex gap-2 mb-2">
-            <input
-              value={from}
-              onChange={(e) => setFrom(e.target.value)}
-              placeholder="9:22"
-              className="w-20 border border-rule rounded px-2 py-1.5 text-[13px] font-mono"
-            />
-            <span className="text-ink-45 self-center text-[13px]">to</span>
-            <input
-              value={to}
-              onChange={(e) => setTo(e.target.value)}
-              placeholder="9:35"
-              className="w-20 border border-rule rounded px-2 py-1.5 text-[13px] font-mono"
-            />
-          </div>
-          <textarea
-            value={quote}
-            onChange={(e) => setQuote(e.target.value)}
-            rows={2}
-            placeholder="What was said"
-            className="w-full border border-rule rounded px-2.5 py-2 text-[13px] mb-2"
-          />
-          <div className="flex gap-2">
+          <div className="flex gap-3 mb-2 text-[12px]">
             <button
-              onClick={() => void cite()}
-              className="bg-ink text-ground border border-ink rounded px-3 py-1.5 text-[12.5px]"
+              type="button"
+              onClick={() => setMode("select")}
+              className={mode === "select" ? "font-semibold underline underline-offset-2" : "text-ink-45"}
             >
-              Cite this
+              Select from transcript
             </button>
             <button
-              onClick={() => setAdding(false)}
+              type="button"
+              onClick={() => setMode("manual")}
+              className={mode === "manual" ? "font-semibold underline underline-offset-2" : "text-ink-45"}
+            >
+              Enter a time
+            </button>
+          </div>
+
+          {mode === "select" ? (
+            segments.length > 0 ? (
+              <TranscriptSelector
+                segments={segments}
+                speakers={speakers}
+                onRunsChange={setRuns}
+              />
+            ) : (
+              <p className="text-[12.5px] text-ink-45 mb-2">
+                No transcript on this call yet &mdash; enter a time instead.
+              </p>
+            )
+          ) : (
+            <>
+              <div className="flex gap-2 mb-2">
+                <input
+                  value={from}
+                  onChange={(e) => setFrom(e.target.value)}
+                  placeholder="9:22"
+                  className="w-20 border border-rule rounded px-2 py-1.5 text-[13px] font-mono"
+                />
+                <span className="text-ink-45 self-center text-[13px]">to</span>
+                <input
+                  value={to}
+                  onChange={(e) => setTo(e.target.value)}
+                  placeholder="9:35"
+                  className="w-20 border border-rule rounded px-2 py-1.5 text-[13px] font-mono"
+                />
+              </div>
+              {/* Retrieved, not transcribed. Shown before saving so the
+                  trainer can see they picked the right passage. */}
+              {(() => {
+                const startMs = parseClock(from);
+                const endMs = startMs === null ? null : parseClock(to) ?? startMs + 20000;
+                const found =
+                  startMs !== null && endMs !== null
+                    ? excerptForRange(segments, startMs, endMs)
+                    : null;
+                return found ? (
+                  <p className="text-[12.5px] bg-ground border border-rule-soft rounded px-2.5 py-2 mb-2 whitespace-pre-line">
+                    {resolveSpeakersInText(found.excerpt, speakers)}
+                  </p>
+                ) : null;
+              })()}
+              <textarea
+                value={quote}
+                onChange={(e) => setQuote(e.target.value)}
+                rows={2}
+                placeholder="Transcript evidence — filled in from the times above where possible"
+                className="w-full border border-rule rounded px-2.5 py-2 text-[13px] mb-2"
+              />
+            </>
+          )}
+
+          <div className="flex gap-2">
+            <button
+              onClick={() => void (mode === "select" ? citeSelection() : citeManual())}
+              className="bg-ink text-ground border border-ink rounded px-3 py-1.5 text-[12.5px]"
+            >
+              {mode === "select" && runs.length > 1
+                ? `Cite ${runs.length} passages`
+                : "Cite this"}
+            </button>
+            <button
+              onClick={() => {
+                setAdding(false);
+                setRuns([]);
+              }}
               className="border border-rule rounded px-3 py-1.5 text-[12.5px]"
             >
               Cancel
