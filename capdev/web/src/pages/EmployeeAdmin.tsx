@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { RepresentativePicker } from "@/pages/RepresentativePicker";
+import { RepresentativePicker } from "@/components/RepresentativePicker";
 import {
   addRepresentative,
   listDepartments,

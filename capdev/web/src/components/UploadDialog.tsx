@@ -6,6 +6,9 @@ import {
   type UploadStage,
 } from "@/lib/calls";
 import { formatBytes, readAudioDuration } from "@/lib/format";
+import { setCallRepresentative } from "@/lib/performance";
+import { setDirectPath } from "@/lib/workflow";
+import { RepresentativePicker } from "@/components/RepresentativePicker";
 import type { Session } from "@/lib/types";
 
 interface Props {
@@ -19,6 +22,12 @@ export function UploadDialog({ session, onClose, onUploaded }: Props): JSX.Eleme
   const [durationMs, setDurationMs] = useState<number | null>(null);
   const [title, setTitle] = useState("");
   const [agentName, setAgentName] = useState("");
+  const [repId, setRepId] = useState("");
+  // Skipping Raw QA is a calibration decision, so it is offered on the
+  // capability rather than on a role name. Uploading is a separate capability
+  // again: a trainer may upload a call and still want an independent review.
+  const canCalibrate = session.permissions.includes("calibration.perform");
+  const [evaluateMyself, setEvaluateMyself] = useState(false);
   const [customerRef, setCustomerRef] = useState("");
   const [occurredAt, setOccurredAt] = useState("");
   const [error, setError] = useState<string | null>(null);
@@ -47,12 +56,20 @@ export function UploadDialog({ session, onClose, onUploaded }: Props): JSX.Eleme
     }
     setError(null);
     try {
-      await uploadCall(
+      const newCallId = await uploadCall(
         { file, title, agentName, customerRef, occurredAt, durationMs },
         session.person.org_id,
         session.person.id,
         setStage,
       );
+
+      // agent_name keeps what was recorded for this call; representative_id is
+      // who the organisation says that person is. Scoring follows the latter.
+      if (repId) await setCallRepresentative(newCallId, repId);
+
+      // Recorded as a decision on the call. No raw observation is invented to
+      // satisfy the workflow.
+      if (evaluateMyself && canCalibrate) await setDirectPath(newCallId);
 
       // Transcription is NOT started here. It costs money per recording, so it
       // is a deliberate press on the call page rather than a side effect of
@@ -129,16 +146,42 @@ export function UploadDialog({ session, onClose, onUploaded }: Props): JSX.Eleme
                      placeholder="Refund threat after proof approval" className={inputClass} />
             </Field>
 
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-              <Field label="Rep">
-                <input value={agentName} onChange={(e) => setAgentName(e.target.value)}
-                       placeholder="Mara" className={inputClass} />
-              </Field>
-              <Field label="Author or account reference">
-                <input value={customerRef} onChange={(e) => setCustomerRef(e.target.value)}
-                       placeholder="AUT-2291" className={inputClass} />
-              </Field>
-            </div>
+            <Field label="Representative">
+              <RepresentativePicker
+                value={repId}
+                onChange={(id, name) => {
+                  setRepId(id);
+                  setAgentName(name);
+                }}
+                canManagePeople={session.permissions.includes("person.manage")}
+              />
+            </Field>
+
+            <Field label="Author or account reference">
+              <input value={customerRef} onChange={(e) => setCustomerRef(e.target.value)}
+                     placeholder="AUT-2291" className={inputClass} />
+            </Field>
+
+            {canCalibrate && (
+              <label className="flex items-start gap-2.5 border border-rule rounded bg-ground px-3 py-2.5 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={evaluateMyself}
+                  onChange={(e) => setEvaluateMyself(e.target.checked)}
+                  className="mt-0.5"
+                  disabled={busy}
+                />
+                <span>
+                  <span className="block text-[13.5px]">
+                    I will evaluate this call myself
+                  </span>
+                  <span className="block text-[12px] text-ink-45 mt-0.5">
+                    Skips Raw QA and sends this call directly to Calibration.
+                    Leave it unticked if you want an independent review first.
+                  </span>
+                </span>
+              </label>
+            )}
 
             <Field label="When did the call happen?" hint="— optional">
               <input type="datetime-local" value={occurredAt}

@@ -1,4 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
+import type { Session } from "@/lib/types";
+import { UploadDialog } from "@/components/UploadDialog";
 import { startDirectCalibration } from "@/lib/workflow";
 import { supabase } from "@/lib/supabase";
 import { SubNav } from "@/components/AppShell";
@@ -12,6 +14,7 @@ type Tab = "ready" | "inprogress";
 
 interface Props {
   onOpenCall: (id: string) => void;
+  session: Session;
 }
 
 /**
@@ -21,11 +24,12 @@ interface Props {
  * queue, or work through a reviewer's week. Both reach the same calibration —
  * there is no second evaluation and no duplicated work.
  */
-export function CalibrationWorkspace({ onOpenCall }: Props): JSX.Element {
+export function CalibrationWorkspace({ onOpenCall, session }: Props): JSX.Element {
   const [tab, setTab] = useState<Tab>("ready");
   const [queue, setQueue] = useState<QueueItem[]>([]);
   const [escalationsOnly, setEscalationsOnly] = useState(false);
   const [starting, setStarting] = useState<string | null>(null);
+  const [uploadOpen, setUploadOpen] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [completedToday, setCompletedToday] = useState(0);
   const [loading, setLoading] = useState(true);
@@ -100,16 +104,39 @@ export function CalibrationWorkspace({ onOpenCall }: Props): JSX.Element {
             what you disagree with, and decide the outcome.
           </p>
         </div>
-        {queue.filter((q) => q.status === "waiting").length > 0 && (
-          <button
-            onClick={pickRandom}
-            className="border border-rule rounded px-4 py-2 text-sm hover:bg-ground-2"
-            title="Picks an escalation first, otherwise anything waiting"
-          >
-            Random review
-          </button>
-        )}
+        <div className="flex gap-2 shrink-0">
+          {/* Rendered on the capability, not on a role name — anyone who may
+              upload a recording can start one here. */}
+          {session.permissions.includes("call.upload") && (
+            <button
+              onClick={() => setUploadOpen(true)}
+              className="bg-ink text-ground border border-ink rounded px-4 py-2 text-sm font-medium hover:opacity-85"
+            >
+              Upload recording
+            </button>
+          )}
+          {queue.filter((q) => q.status === "waiting").length > 0 && (
+            <button
+              onClick={pickRandom}
+              className="border border-rule rounded px-4 py-2 text-sm hover:bg-ground-2"
+              title="Picks an escalation first, otherwise anything waiting"
+            >
+              Random review
+            </button>
+          )}
+        </div>
       </header>
+
+      {uploadOpen && (
+        <UploadDialog
+          session={session}
+          onClose={() => setUploadOpen(false)}
+          onUploaded={() => {
+            setUploadOpen(false);
+            void load();
+          }}
+        />
+      )}
 
       {queue.length > 0 && (
         <div className="grid grid-cols-2 sm:grid-cols-4 border-y border-rule mb-5">

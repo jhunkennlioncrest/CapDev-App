@@ -86,7 +86,7 @@ export default function App(): JSX.Element {
       ) : active === "rawqa" ? (
         <RawQAWorkspace session={session} onOpenCall={openCall} />
       ) : active === "calibration" ? (
-        <CalibrationWorkspace onOpenCall={openCall} />
+        <CalibrationWorkspace onOpenCall={openCall} session={session} />
       ) : active === "library" ? (
         <LibraryWorkspace
           session={session}
