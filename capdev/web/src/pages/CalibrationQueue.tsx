@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { getQueue, startCalibration, type QueueItem } from "@/lib/evaluation";
+import { startDirectCalibration } from "@/lib/workflow";
 import { formatDate, formatDuration } from "@/lib/format";
 
 interface Props {
@@ -35,10 +36,16 @@ export function CalibrationQueue({ onOpenCall, onBack }: Props): JSX.Element {
   }, [load]);
 
   async function begin(item: QueueItem): Promise<void> {
-    setStarting(item.assignment_id);
+    setStarting(item.assignment_id ?? item.call_id);
     setError(null);
     try {
-      await startCalibration(item.raw_evaluation_id);
+      // Two routes in, one calibration out. A direct call has no observation
+      // to derive from, so it starts from the call itself.
+      if (item.source === "direct" || !item.raw_evaluation_id) {
+        await startDirectCalibration(item.call_id);
+      } else {
+        await startCalibration(item.raw_evaluation_id);
+      }
       onOpenCall(item.call_id);
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
@@ -99,13 +106,24 @@ export function CalibrationQueue({ onOpenCall, onBack }: Props): JSX.Element {
           <ul className="space-y-2.5">
             {items.map((item) => (
               <li
-                key={item.assignment_id}
+                key={item.assignment_id ?? item.call_id}
                 className="bg-card border border-rule-soft rounded px-4 py-3.5"
               >
                 <div className="flex justify-between items-start gap-4 flex-wrap">
                   <div className="min-w-0 flex-1">
                     <div className="flex items-baseline gap-2.5 flex-wrap">
                       <h3 className="font-display text-lg">{item.call_title}</h3>
+                      {/* Which route the call came through, stated plainly so
+                          a missing reviewer reads as intended, not absent. */}
+                      <span
+                        className={`text-[10.5px] border rounded-full px-2 py-0.5 ${
+                          item.source === "direct"
+                            ? "border-accent text-accent"
+                            : "border-rule text-ink-45"
+                        }`}
+                      >
+                        {item.source === "direct" ? "Direct" : "Raw QA"}
+                      </span>
                       {item.is_high_risk && (
                         <span className="text-[11px] font-medium border border-[#AC3A2A] text-[#AC3A2A] rounded-full px-2 py-0.5">
                           Escalation
@@ -116,9 +134,15 @@ export function CalibrationQueue({ onOpenCall, onBack }: Props): JSX.Element {
                       )}
                     </div>
                     <p className="text-[12px] text-ink-45 mt-0.5">
-                      {item.agent_name || "Rep not set"} &middot; observed by{" "}
-                      {item.reviewer_name ?? "unknown"} &middot;{" "}
-                      {formatDate(item.submitted_at)}
+                      {item.representative_name ?? item.agent_name ?? "Rep not set"}
+                      {item.source === "direct" ? (
+                        <> &middot; no Raw QA observation &middot; uploaded {formatDate(item.queued_at)}</>
+                      ) : (
+                        <>
+                          {" "}&middot; observed by {item.reviewer_name ?? "unknown"} &middot;{" "}
+                          {formatDate(item.submitted_at)}
+                        </>
+                      )}
                       {item.duration_ms ? ` · ${formatDuration(item.duration_ms)}` : ""}
                     </p>
                     {item.escalation_note && (
@@ -141,10 +165,10 @@ export function CalibrationQueue({ onOpenCall, onBack }: Props): JSX.Element {
                     </span>
                     <button
                       onClick={() => void begin(item)}
-                      disabled={starting === item.assignment_id}
+                      disabled={starting === (item.assignment_id ?? item.call_id)}
                       className="bg-ink text-ground border border-ink rounded px-3.5 py-1.5 text-[13px] font-medium hover:opacity-85 disabled:opacity-40"
                     >
-                      {starting === item.assignment_id
+                      {starting === (item.assignment_id ?? item.call_id)
                         ? "Opening…"
                         : item.status === "in_progress"
                           ? "Continue"

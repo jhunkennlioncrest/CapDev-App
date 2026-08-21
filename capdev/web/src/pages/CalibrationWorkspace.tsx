@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { startDirectCalibration } from "@/lib/workflow";
 import { supabase } from "@/lib/supabase";
 import { SubNav } from "@/components/AppShell";
 import { getQueue, startCalibration, type QueueItem } from "@/lib/evaluation";
@@ -51,10 +52,20 @@ export function CalibrationWorkspace({ onOpenCall }: Props): JSX.Element {
     void load();
   }, [load]);
 
-  async function begin(rawEvaluationId: string, callId: string): Promise<void> {
-    setStarting(rawEvaluationId);
+  /**
+   * Opens a calibration from either route.
+   *
+   * A direct call has no raw evaluation to derive from, so it starts from the
+   * call itself — the same destination, honestly reached.
+   */
+  async function begin(rawEvaluationId: string | null, callId: string): Promise<void> {
+    setStarting(rawEvaluationId ?? callId);
     try {
-      await startCalibration(rawEvaluationId);
+      if (rawEvaluationId) {
+        await startCalibration(rawEvaluationId);
+      } else {
+        await startDirectCalibration(callId);
+      }
       onOpenCall(callId);
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
@@ -143,9 +154,9 @@ export function CalibrationWorkspace({ onOpenCall }: Props): JSX.Element {
             <ul className="space-y-2.5">
               {waiting.map((q) => (
                 <QueueRow
-                  key={q.assignment_id}
+                  key={q.assignment_id ?? q.call_id}
                   item={q}
-                  starting={starting === q.raw_evaluation_id}
+                  starting={starting === (q.raw_evaluation_id ?? q.call_id)}
                   onStart={() => void begin(q.raw_evaluation_id, q.call_id)}
                 />
               ))}
@@ -159,9 +170,9 @@ export function CalibrationWorkspace({ onOpenCall }: Props): JSX.Element {
           <ul className="space-y-2.5">
             {inProgress.map((q) => (
               <QueueRow
-                key={q.assignment_id}
+                key={q.assignment_id ?? q.call_id}
                 item={q}
-                starting={starting === q.raw_evaluation_id}
+                starting={starting === (q.raw_evaluation_id ?? q.call_id)}
                 onStart={() => onOpenCall(q.call_id)}
                 label="Continue"
               />

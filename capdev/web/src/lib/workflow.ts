@@ -87,3 +87,16 @@ export async function startDirectCalibration(callId: string): Promise<string> {
   if (error) throw new Error(error.message);
   return data as string;
 }
+
+
+/**
+ * Marks a call for direct trainer calibration.
+ *
+ * No raw observation is created — the call simply joins the calibration queue
+ * once it has a transcript, and its evaluation will honestly have nothing
+ * behind it.
+ */
+export async function setDirectPath(callId: string): Promise<void> {
+  const { error } = await supabase.rpc("set_direct_path", { p_call_id: callId });
+  if (error) throw new Error(error.message);
+}

@@ -232,10 +232,12 @@ export async function listEvaluations(callId: string): Promise<Evaluation[]> {
 export type EvaluationKind = "raw_observation" | "calibrated";
 
 export interface QueueItem {
-  assignment_id: string;
+  /** Null on a direct call: there was no observation, so nothing to assign. */
+  assignment_id: string | null;
   status: string;
   queued_at: string;
-  raw_evaluation_id: string;
+  /** Null on a direct call. */
+  raw_evaluation_id: string | null;
   call_id: string;
   call_title: string;
   agent_name: string;
@@ -249,6 +251,11 @@ export interface QueueItem {
   days_waiting: number;
   duration_ms: number | null;
   calibrated_evaluation_id: string | null;
+  /** Which route brought this call here. */
+  source: "raw_qa" | "direct";
+  representative_name: string | null;
+  observed: number | null;
+  total: number | null;
 }
 
 /** Which workspace a person belongs in, from their permissions. */

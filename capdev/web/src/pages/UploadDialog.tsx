@@ -1,5 +1,6 @@
 import { useRef, useState } from "react";
 import { setCallRepresentative } from "@/lib/performance";
+import { setDirectPath } from "@/lib/workflow";
 import { RepresentativePicker } from "@/pages/RepresentativePicker";
 import {
   ACCEPTED_EXTENSIONS,
@@ -24,6 +25,10 @@ export function UploadDialog({ session, onClose, onUploaded }: Props): JSX.Eleme
   // The canonical identity. agentName is kept as the text recorded, so calls
   // uploaded before representatives existed still show what was typed.
   const [repId, setRepId] = useState("");
+  // A trainer may be evaluating this call themselves. Offered only to people
+  // who can calibrate — for everyone else the question is meaningless.
+  const canCalibrate = session.permissions.includes("calibration.perform");
+  const [directPath, setDirectPath_] = useState(false);
   const [customerRef, setCustomerRef] = useState("");
   const [occurredAt, setOccurredAt] = useState("");
   const [error, setError] = useState<string | null>(null);
@@ -62,6 +67,10 @@ export function UploadDialog({ session, onClose, onUploaded }: Props): JSX.Eleme
       // The canonical link, so scoring follows the person rather than the
       // spelling of their name on this particular call.
       if (repId) await setCallRepresentative(newCallId, repId);
+
+      // Skipping Raw QA is a decision recorded on the call, not a fake
+      // observation invented to satisfy the workflow.
+      if (directPath && canCalibrate) await setDirectPath(newCallId);
 
       // Transcription is NOT started here. It costs money per recording, so it
       // is a deliberate press on the call page rather than a side effect of
@@ -151,6 +160,23 @@ export function UploadDialog({ session, onClose, onUploaded }: Props): JSX.Eleme
                   canManagePeople={session.permissions.includes("person.manage")}
                 />
               </Field>
+              {canCalibrate && (
+                <label className="flex items-start gap-2.5 border border-rule rounded bg-ground px-3 py-2.5 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={directPath}
+                    onChange={(e) => setDirectPath_(e.target.checked)}
+                    className="mt-0.5"
+                  />
+                  <span>
+                    <span className="block text-[13.5px]">I will evaluate this call myself</span>
+                    <span className="block text-[12px] text-ink-45 mt-0.5">
+                      Skips Raw QA and sends it straight to Calibration. No observation is
+                      recorded, because none was made.
+                    </span>
+                  </span>
+                </label>
+              )}
               <Field label="Author or account reference">
                 <input value={customerRef} onChange={(e) => setCustomerRef(e.target.value)}
                        placeholder="AUT-2291" className={inputClass} />
