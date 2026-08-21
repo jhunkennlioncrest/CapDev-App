@@ -79,13 +79,18 @@ export interface VarianceRow {
 
 export interface Representative {
   id: string;
+  employee_ref: string;
+  first_name: string;
+  middle_name: string;
+  last_name: string;
+  /** Derived from the parts as "First Last". Never typed directly. */
   display_name: string;
   department: string;
-  employee_ref: string;
   status: string;
-  is_representative: boolean;
   has_login: boolean;
-  archived_at: string | null;
+  is_inactive: boolean;
+  calls: number;
+  completed_evaluations: number;
 }
 
 /**
@@ -149,28 +154,31 @@ export async function repVariance(
 
 // ---- representatives as records ------------------------------------------
 
+/** The canonical directory. The one place representative names come from. */
 export async function listRepresentatives(): Promise<Representative[]> {
   const { data, error } = await supabase
-    .from("person")
-    .select("id, display_name, department, employee_ref, status, is_representative, auth_user_id, archived_at")
-    .eq("is_representative", true)
+    .from("v_representative_directory")
+    .select("*")
     .order("display_name");
   if (error) throw new Error(error.message);
-  return ((data ?? []) as (Omit<Representative, "has_login"> & { auth_user_id: string | null })[]).map(
-    (r) => ({ ...r, has_login: r.auth_user_id !== null }),
-  );
+  return (data ?? []) as Representative[];
 }
 
 export async function addRepresentative(params: {
-  displayName: string;
+  firstName: string;
+  middleName?: string;
+  lastName: string;
   department?: string;
   employeeRef?: string;
 }): Promise<string> {
   const { data, error } = await supabase.rpc("add_representative", {
-    p_display_name: params.displayName,
+    p_display_name: null,
     p_department: params.department ?? "",
     p_employee_ref: params.employeeRef ?? "",
     p_email: null,
+    p_first_name: params.firstName,
+    p_middle_name: params.middleName ?? "",
+    p_last_name: params.lastName,
   });
   if (error) throw new Error(error.message);
   return data as string;
@@ -178,10 +186,22 @@ export async function addRepresentative(params: {
 
 export async function updateRepresentative(
   id: string,
-  patch: { display_name?: string; department?: string; employee_ref?: string; status?: string },
+  patch: {
+    first_name?: string;
+    middle_name?: string;
+    last_name?: string;
+    department?: string;
+    employee_ref?: string;
+    status?: string;
+  },
 ): Promise<void> {
   const { error } = await supabase.from("person").update(patch).eq("id", id);
-  if (error) throw new Error(error.message);
+  if (error) {
+    if (error.message.includes("person_employee_ref_key")) {
+      throw new Error("That employee reference is already in use.");
+    }
+    throw new Error(error.message);
+  }
 }
 
 /** Links a call to its representative. */

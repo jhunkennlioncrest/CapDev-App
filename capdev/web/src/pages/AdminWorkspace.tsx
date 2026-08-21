@@ -59,7 +59,7 @@ export function AdminWorkspace({ session }: { session: Session }): JSX.Element {
       <SubNav
         tabs={[
           { key: "users" as const, label: "Users" },
-          { key: "employees" as const, label: "Employees" },
+          { key: "employees" as const, label: "Representatives" },
             { key: "roles" as const, label: "Roles" },
           { key: "rubrics" as const, label: "Rubrics" },
           { key: "integrations" as const, label: "Integrations" },

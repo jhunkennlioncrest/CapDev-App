@@ -23,11 +23,22 @@ export function UploadDialog({ session, onClose, onUploaded }: Props): JSX.Eleme
   // The canonical identity. agentName is kept as the text recorded, so calls
   // uploaded before representatives existed still show what was typed.
   const [repId, setRepId] = useState("");
+  const [repSearch, setRepSearch] = useState("");
   const [reps, setReps] = useState<Representative[]>([]);
+
+  const matches = reps.filter((r) => {
+    const q = repSearch.trim().toLowerCase();
+    if (!q) return false;
+    return (
+      r.display_name.toLowerCase().includes(q) ||
+      r.employee_ref.toLowerCase().includes(q) ||
+      r.department.toLowerCase().includes(q)
+    );
+  });
 
   useEffect(() => {
     void listRepresentatives().then((all) =>
-      setReps(all.filter((r) => r.status === "active" && r.archived_at === null)),
+      setReps(all.filter((r) => !r.is_inactive)),
     );
   }, []);
   const [customerRef, setCustomerRef] = useState("");
@@ -147,32 +158,69 @@ export function UploadDialog({ session, onClose, onUploaded }: Props): JSX.Eleme
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <Field label="Representative">
                 {reps.length > 0 ? (
-                  <select
-                    value={repId}
-                    onChange={(e) => {
-                      setRepId(e.target.value);
-                      const chosen = reps.find((r) => r.id === e.target.value);
-                      if (chosen) setAgentName(chosen.display_name);
-                    }}
-                    className={inputClass}
-                  >
-                    <option value="">Choose…</option>
-                    {reps.map((r) => (
-                      <option key={r.id} value={r.id}>
-                        {r.display_name}
-                        {r.department ? ` — ${r.department}` : ""}
-                      </option>
-                    ))}
-                  </select>
-                ) : (
                   <>
-                    <input value={agentName} onChange={(e) => setAgentName(e.target.value)}
-                           placeholder="Mara" className={inputClass} />
-                    <span className="block text-[11.5px] text-ink-45 mt-1">
-                      No representatives yet — add them in Administration so
-                      scores follow the person rather than the spelling.
-                    </span>
+                    {/* Chosen from the directory, never typed. A new identity
+                        can only be created in Administration, which is what
+                        stops one person becoming three. */}
+                    <input
+                      value={repSearch}
+                      onChange={(e) => {
+                        setRepSearch(e.target.value);
+                        setRepId("");
+                      }}
+                      placeholder="Search by name, reference or team"
+                      className={inputClass}
+                      list="representative-options"
+                    />
+                    <datalist id="representative-options">
+                      {reps.map((r) => (
+                        <option
+                          key={r.id}
+                          value={`${r.display_name}${r.employee_ref ? ` (${r.employee_ref})` : ""}`}
+                        />
+                      ))}
+                    </datalist>
+                    {matches.length > 0 && !repId && repSearch.trim() !== "" && (
+                      <ul className="mt-1 border border-rule rounded bg-white max-h-40 overflow-auto">
+                        {matches.slice(0, 6).map((r) => (
+                          <li key={r.id}>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setRepId(r.id);
+                                setAgentName(r.display_name);
+                                setRepSearch(r.display_name);
+                              }}
+                              className="w-full text-left px-2.5 py-1.5 text-[13px] hover:bg-ground"
+                            >
+                              {r.display_name}
+                              {r.employee_ref && (
+                                <span className="font-mono text-[11px] text-ink-45 ml-2">
+                                  {r.employee_ref}
+                                </span>
+                              )}
+                              {r.department && (
+                                <span className="text-[11.5px] text-ink-45 ml-2">
+                                  {r.department}
+                                </span>
+                              )}
+                            </button>
+                          </li>
+                        ))}
+                      </ul>
+                    )}
+                    {repId && (
+                      <span className="block text-[11.5px] text-[#1F7A4D] mt-1">
+                        &#10003; {agentName}
+                      </span>
+                    )}
                   </>
+                ) : (
+                  <span className="block text-[12.5px] text-ink-45">
+                    No representatives yet. An administrator adds them in
+                    Administration &rarr; Representatives, so scoring follows the
+                    person rather than the spelling of a name.
+                  </span>
                 )}
               </Field>
               <Field label="Author or account reference">

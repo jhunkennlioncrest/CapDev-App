@@ -16,6 +16,8 @@ import { supabase } from "./supabase";
 export interface SpeakerIdentity {
   name?: string;
   role?: string;
+  /** When set, the name is resolved from the directory rather than stored. */
+  representative_id?: string;
 }
 
 export type SpeakerMap = Record<string, SpeakerIdentity>;
@@ -24,6 +26,8 @@ export interface SpeakerRow {
   label: string;
   name: string | null;
   role: string | null;
+  representative_id: string | null;
+  employee_ref: string | null;
   display_name: string;
   segment_count: number;
 }
@@ -34,7 +38,7 @@ export const SUGGESTED_ROLES = ["Representative", "Author", "Manager", "Guest"];
 export async function getSpeakers(transcriptId: string): Promise<SpeakerRow[]> {
   const { data, error } = await supabase
     .from("v_transcript_speakers")
-    .select("label, name, role, display_name, segment_count")
+    .select("label, name, role, representative_id, employee_ref, display_name, segment_count")
     .eq("transcript_id", transcriptId)
     .order("label");
   if (error) throw new Error(error.message);
@@ -46,12 +50,15 @@ export async function nameSpeaker(params: {
   label: string;
   name?: string | null;
   role?: string | null;
+  /** Identifies this speaker as a representative from the directory. */
+  representativeId?: string | null;
 }): Promise<SpeakerMap> {
   const { data, error } = await supabase.rpc("name_speaker", {
     p_transcript_id: params.transcriptId,
     p_label: params.label,
     p_name: params.name ?? null,
     p_role: params.role ?? null,
+    p_representative_id: params.representativeId ?? null,
   });
   if (error) throw new Error(error.message);
   return (data ?? {}) as SpeakerMap;

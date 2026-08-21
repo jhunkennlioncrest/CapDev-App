@@ -1,46 +1,35 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   addRepresentative,
   listRepresentatives,
-  listRepPerformance,
+  setCallRepresentative,
   unlinkedCalls,
   updateRepresentative,
-  setCallRepresentative,
   type Representative,
 } from "@/lib/performance";
 
 /**
- * Canonical representative records.
+ * The representative directory.
  *
- * These are people whose calls are evaluated. Most have no CapDev login and
- * never will — an account and an evaluated employee are different things that
- * happen to share the same person record.
+ * The authoritative place representative identities are created. Every other
+ * feature selects from here rather than accepting a typed name, which is what
+ * stops "Joe Bays", "Joe B." and "J. Bays" becoming three people with three
+ * scoring histories.
  */
 export function EmployeeAdmin({ canManage }: { canManage: boolean }): JSX.Element {
   const [reps, setReps] = useState<Representative[] | null>(null);
-  const [counts, setCounts] = useState<Record<string, number>>({});
   const [orphans, setOrphans] = useState<
     { call_id: string; title: string; agent_name: string | null; completed_evaluations: number }[]
   >([]);
   const [adding, setAdding] = useState(false);
-  const [name, setName] = useState("");
-  const [dept, setDept] = useState("");
-  const [ref, setRef] = useState("");
+  const [search, setSearch] = useState("");
+  const [showInactive, setShowInactive] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const load = useCallback(async (): Promise<void> => {
     try {
-      const [r, perf, o] = await Promise.all([
-        listRepresentatives(),
-        listRepPerformance(),
-        unlinkedCalls(),
-      ]);
+      const [r, o] = await Promise.all([listRepresentatives(), unlinkedCalls()]);
       setReps(r);
-      const tally: Record<string, number> = {};
-      for (const p of perf) {
-        tally[p.representative_id] = (tally[p.representative_id] ?? 0) + p.evaluations;
-      }
-      setCounts(tally);
       setOrphans(o);
       setError(null);
     } catch (e) {
@@ -52,25 +41,28 @@ export function EmployeeAdmin({ canManage }: { canManage: boolean }): JSX.Elemen
     void load();
   }, [load]);
 
-  async function create(): Promise<void> {
-    try {
-      await addRepresentative({ displayName: name, department: dept, employeeRef: ref });
-      setName("");
-      setDept("");
-      setRef("");
-      setAdding(false);
-      await load();
-    } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
-    }
-  }
+  const visible = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    return (reps ?? [])
+      .filter((r) => showInactive || !r.is_inactive)
+      .filter(
+        (r) =>
+          !q ||
+          r.display_name.toLowerCase().includes(q) ||
+          r.employee_ref.toLowerCase().includes(q) ||
+          r.department.toLowerCase().includes(q),
+      );
+  }, [reps, search, showInactive]);
+
+  const inactiveCount = (reps ?? []).filter((r) => r.is_inactive).length;
 
   return (
     <div>
       <div className="flex justify-between items-start gap-4 flex-wrap mb-4">
         <p className="text-[13px] text-ink-70 max-w-xl">
-          People whose calls are evaluated. They do not need a login &mdash; most
-          representatives never sign in to CapDev.
+          The people whose calls are evaluated. Created here and selected
+          everywhere else, so one person keeps one scoring history whatever was
+          typed on a recording. A representative does not need a login.
         </p>
         {canManage && (
           <button
@@ -84,59 +76,37 @@ export function EmployeeAdmin({ canManage }: { canManage: boolean }): JSX.Elemen
 
       {error && <p className="text-[13px] text-[#AC3A2A] mb-3">{error}</p>}
 
-      {adding && (
-        <div className="bg-card border border-rule-soft rounded px-4 py-3.5 mb-4 max-w-2xl">
-          <div className="grid sm:grid-cols-3 gap-3 mb-2.5">
-            <Field label="Full name" value={name} onChange={setName} />
-            <Field label="Team or department" value={dept} onChange={setDept} />
-            <Field
-              label="Employee ID"
-              hint="if you have one"
-              value={ref}
-              onChange={setRef}
-            />
-          </div>
-          <div className="flex gap-2">
-            <button
-              onClick={() => void create()}
-              disabled={!name.trim()}
-              className="bg-ink text-ground border border-ink rounded px-3.5 py-1.5 text-[13px] font-medium disabled:opacity-40"
-            >
-              Add
-            </button>
-            <button
-              onClick={() => setAdding(false)}
-              className="border border-rule rounded px-3.5 py-1.5 text-[13px]"
-            >
-              Cancel
-            </button>
-          </div>
-          <p className="text-[12px] text-ink-45 mt-2">
-            If this name already belongs to someone in the organisation, they
-            become a representative rather than a second record.
-          </p>
-        </div>
+      {adding && canManage && (
+        <NewRepresentative
+          onDone={() => {
+            setAdding(false);
+            void load();
+          }}
+          onCancel={() => setAdding(false)}
+          onError={setError}
+        />
       )}
 
-      {/* Work that counts for nobody, surfaced rather than left to rot. */}
+      {/* Identity resolution is deliberate: no fuzzy matching decides that two
+          names are the same person. An administrator does. */}
       {canManage && orphans.length > 0 && (
         <div className="border border-[#96690A] rounded bg-card px-4 py-3.5 mb-4">
-          <p className="text-[13px] font-semibold mb-1.5">
-            {orphans.length} call{orphans.length === 1 ? "" : "s"} not linked to a
-            representative
+          <p className="text-[13px] font-semibold mb-1">
+            Calls requiring representative assignment
+            <span className="font-normal text-ink-45 ml-2">{orphans.length}</span>
           </p>
-          <p className="text-[12.5px] text-ink-70 mb-2">
-            These have a typed name but no canonical identity, so their
+          <p className="text-[12.5px] text-ink-70 mb-2.5">
+            These have a name as typed but no canonical identity, so their
             evaluations count towards nobody.
           </p>
-          <ul className="space-y-1">
-            {orphans.slice(0, 6).map((o) => (
+          <ul className="space-y-1.5">
+            {orphans.slice(0, 10).map((o) => (
               <li key={o.call_id} className="flex items-center gap-3 flex-wrap">
                 <span className="text-[13px] flex-1 min-w-0 truncate">
-                  {o.title}
                   {o.agent_name && (
-                    <span className="text-ink-45 ml-2">typed as &ldquo;{o.agent_name}&rdquo;</span>
+                    <span className="font-semibold">&ldquo;{o.agent_name}&rdquo;</span>
                   )}
+                  <span className="text-ink-45 ml-2">{o.title}</span>
                   {o.completed_evaluations > 0 && (
                     <span className="text-ink-45 ml-2">
                       · {o.completed_evaluations} completed
@@ -152,12 +122,15 @@ export function EmployeeAdmin({ canManage }: { canManage: boolean }): JSX.Elemen
                   }}
                   className="border border-rule rounded px-2 py-1 bg-white text-[12.5px]"
                 >
-                  <option value="">Link to…</option>
-                  {(reps ?? []).map((r) => (
-                    <option key={r.id} value={r.id}>
-                      {r.display_name}
-                    </option>
-                  ))}
+                  <option value="">Assign to&hellip;</option>
+                  {(reps ?? [])
+                    .filter((r) => !r.is_inactive)
+                    .map((r) => (
+                      <option key={r.id} value={r.id}>
+                        {r.employee_ref ? `${r.employee_ref} — ` : ""}
+                        {r.display_name}
+                      </option>
+                    ))}
                 </select>
               </li>
             ))}
@@ -165,24 +138,47 @@ export function EmployeeAdmin({ canManage }: { canManage: boolean }): JSX.Elemen
         </div>
       )}
 
+      {(reps?.length ?? 0) > 0 && (
+        <div className="flex gap-3 items-center flex-wrap mb-3">
+          <input
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            placeholder="Search by name, reference or team"
+            className="flex-1 min-w-56 border border-rule rounded px-2.5 py-2 bg-white text-[13.5px]"
+          />
+          {inactiveCount > 0 && (
+            <label className="flex items-center gap-2 text-[12.5px] text-ink-45">
+              <input
+                type="checkbox"
+                checked={showInactive}
+                onChange={(e) => setShowInactive(e.target.checked)}
+              />
+              Show {inactiveCount} inactive
+            </label>
+          )}
+        </div>
+      )}
+
       {reps === null ? (
         <p className="text-ink-45 text-sm">Loading&hellip;</p>
-      ) : reps.length === 0 ? (
+      ) : visible.length === 0 ? (
         <div className="border border-dashed border-rule rounded bg-card px-8 py-12 text-center">
-          <h2 className="font-display text-2xl mb-2">No representatives yet</h2>
+          <h2 className="font-display text-2xl mb-2">
+            {reps.length === 0 ? "No representatives yet" : "Nothing matches that"}
+          </h2>
           <p className="text-ink-70 max-w-md mx-auto">
-            Add the people whose calls you evaluate. Scoring follows the record,
-            not the spelling of a name.
+            {reps.length === 0
+              ? "Add the people whose calls you evaluate. Scoring follows the record, not the spelling of a name."
+              : "Try a different name, reference or team."}
           </p>
         </div>
       ) : (
         <ul className="space-y-2">
-          {reps.map((r) => (
+          {visible.map((r) => (
             <RepRow
               key={r.id}
               rep={r}
               canManage={canManage}
-              evaluations={counts[r.id] ?? 0}
               onChanged={load}
               onError={setError}
             />
@@ -193,25 +189,112 @@ export function EmployeeAdmin({ canManage }: { canManage: boolean }): JSX.Elemen
   );
 }
 
+function NewRepresentative({
+  onDone,
+  onCancel,
+  onError,
+}: {
+  onDone: () => void;
+  onCancel: () => void;
+  onError: (m: string) => void;
+}): JSX.Element {
+  const [first, setFirst] = useState("");
+  const [middle, setMiddle] = useState("");
+  const [last, setLast] = useState("");
+  const [dept, setDept] = useState("");
+  const [ref, setRef] = useState("");
+  const [busy, setBusy] = useState(false);
+
+  const preview = [first.trim(), last.trim()].filter(Boolean).join(" ");
+
+  async function create(): Promise<void> {
+    setBusy(true);
+    try {
+      await addRepresentative({
+        firstName: first,
+        middleName: middle,
+        lastName: last,
+        department: dept,
+        employeeRef: ref,
+      });
+      onDone();
+    } catch (e) {
+      onError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div className="bg-card border border-ink rounded px-4 py-4 mb-4 max-w-3xl">
+      <p className="font-mono text-[10px] tracking-[0.14em] uppercase text-ink-45 mb-3">
+        New representative
+      </p>
+
+      <div className="grid sm:grid-cols-3 gap-3 mb-3">
+        <Field label="First name" value={first} onChange={setFirst} />
+        <Field label="Middle name" hint="optional" value={middle} onChange={setMiddle} />
+        <Field label="Last name" value={last} onChange={setLast} />
+      </div>
+
+      <div className="grid sm:grid-cols-2 gap-3 mb-3">
+        <Field
+          label="Employee reference"
+          hint="your own ID — must be unique"
+          value={ref}
+          onChange={setRef}
+        />
+        <Field label="Team or department" value={dept} onChange={setDept} />
+      </div>
+
+      {preview && (
+        <p className="text-[13px] text-ink-70 mb-3">
+          Will appear everywhere as{" "}
+          <span className="font-semibold">{preview}</span>
+          {ref && <span className="text-ink-45"> · {ref}</span>}
+        </p>
+      )}
+
+      <div className="flex gap-2">
+        <button
+          onClick={() => void create()}
+          disabled={!first.trim() || !last.trim() || busy}
+          className="bg-ink text-ground border border-ink rounded px-3.5 py-1.5 text-[13px] font-medium disabled:opacity-40"
+        >
+          {busy ? "Adding…" : "Add"}
+        </button>
+        <button
+          onClick={onCancel}
+          className="border border-rule rounded px-3.5 py-1.5 text-[13px]"
+        >
+          Cancel
+        </button>
+      </div>
+      <p className="text-[12px] text-ink-45 mt-2">
+        No login or email is created. This is a record of someone whose work is
+        evaluated, not an account.
+      </p>
+    </div>
+  );
+}
+
 function RepRow({
   rep,
-  evaluations,
+  canManage,
   onChanged,
   onError,
-  canManage,
 }: {
-  canManage: boolean;
   rep: Representative;
-  evaluations: number;
+  canManage: boolean;
   onChanged: () => Promise<void>;
   onError: (m: string) => void;
 }): JSX.Element {
   const [editing, setEditing] = useState(false);
-  const [name, setName] = useState(rep.display_name);
+  const [first, setFirst] = useState(rep.first_name);
+  const [middle, setMiddle] = useState(rep.middle_name);
+  const [last, setLast] = useState(rep.last_name);
   const [dept, setDept] = useState(rep.department);
   const [ref, setRef] = useState(rep.employee_ref);
-
-  const inactive = rep.status !== "active" || rep.archived_at !== null;
 
   async function save(patch: Parameters<typeof updateRepresentative>[1]): Promise<void> {
     try {
@@ -228,8 +311,13 @@ function RepRow({
       <div className="flex justify-between items-start gap-4 flex-wrap">
         <div className="min-w-0">
           <span className="text-[14.5px]">
+            {rep.employee_ref && (
+              <span className="font-mono text-[11.5px] text-ink-45 mr-2">
+                {rep.employee_ref}
+              </span>
+            )}
             {rep.display_name}
-            {inactive && (
+            {rep.is_inactive && (
               <span className="text-[11px] border border-rule text-ink-45 rounded-full px-2 py-0.5 ml-2">
                 {rep.status}
               </span>
@@ -239,62 +327,73 @@ function RepRow({
             )}
           </span>
           <p className="text-[12px] text-ink-45 mt-0.5">
-            {rep.department || "no department"}
-            {rep.employee_ref && ` · ${rep.employee_ref}`}
-            {" · "}
-            {evaluations} completed evaluation{evaluations === 1 ? "" : "s"}
+            {rep.department || "no team"} · {rep.calls} call
+            {rep.calls === 1 ? "" : "s"} · {rep.completed_evaluations} completed
+            evaluation{rep.completed_evaluations === 1 ? "" : "s"}
           </p>
         </div>
 
         {canManage && (
-        <div className="flex gap-2 shrink-0">
-          <button
-            onClick={() => setEditing((e) => !e)}
-            className="border border-rule rounded px-3 py-1.5 text-[12.5px] hover:bg-ground-2"
-          >
-            {editing ? "Close" : "Edit"}
-          </button>
-          {!inactive ? (
+          <div className="flex gap-2 shrink-0">
             <button
-              onClick={() => void save({ status: "offboarded" })}
-              title="Their completed evaluations are kept"
-              className="text-[12.5px] text-ink-45 underline underline-offset-2 hover:text-ink px-1"
+              onClick={() => setEditing((e) => !e)}
+              className="border border-rule rounded px-3 py-1.5 text-[12.5px] hover:bg-ground-2"
             >
-              Deactivate
+              {editing ? "Close" : "Edit"}
             </button>
-          ) : (
-            <button
-              onClick={() => void save({ status: "active" })}
-              className="text-[12.5px] text-ink-45 underline underline-offset-2 hover:text-ink px-1"
-            >
-              Reactivate
-            </button>
-          )}
-        </div>
+            {!rep.is_inactive ? (
+              <button
+                onClick={() => void save({ status: "offboarded" })}
+                title="Completed evaluations are kept"
+                className="text-[12.5px] text-ink-45 underline underline-offset-2 hover:text-ink px-1"
+              >
+                Deactivate
+              </button>
+            ) : (
+              <button
+                onClick={() => void save({ status: "active" })}
+                className="text-[12.5px] text-ink-45 underline underline-offset-2 hover:text-ink px-1"
+              >
+                Reactivate
+              </button>
+            )}
+          </div>
         )}
       </div>
 
-      {editing && (
+      {editing && canManage && (
         <div className="mt-3 border-t border-rule-soft pt-3">
-          <div className="grid sm:grid-cols-3 gap-3 mb-2.5">
-            <Field label="Full name" value={name} onChange={setName} />
-            <Field label="Team or department" value={dept} onChange={setDept} />
-            <Field label="Employee ID" value={ref} onChange={setRef} />
+          <div className="grid sm:grid-cols-3 gap-3 mb-3">
+            <Field label="First name" value={first} onChange={setFirst} />
+            <Field label="Middle name" hint="optional" value={middle} onChange={setMiddle} />
+            <Field label="Last name" value={last} onChange={setLast} />
           </div>
+          <div className="grid sm:grid-cols-2 gap-3 mb-3">
+            <Field label="Employee reference" value={ref} onChange={setRef} />
+            <Field label="Team or department" value={dept} onChange={setDept} />
+          </div>
+          <p className="text-[12.5px] text-ink-70 mb-2.5">
+            Will appear everywhere as{" "}
+            <span className="font-semibold">
+              {[first.trim(), last.trim()].filter(Boolean).join(" ")}
+            </span>
+            {" — "}including on the {rep.completed_evaluations} completed evaluation
+            {rep.completed_evaluations === 1 ? "" : "s"} already recorded.
+          </p>
           <button
             onClick={() =>
-              void save({ display_name: name, department: dept, employee_ref: ref })
+              void save({
+                first_name: first,
+                middle_name: middle,
+                last_name: last,
+                department: dept,
+                employee_ref: ref,
+              })
             }
             className="bg-ink text-ground border border-ink rounded px-3.5 py-1.5 text-[13px] font-medium"
           >
             Save
           </button>
-          {inactive && (
-            <p className="text-[12px] text-ink-45 mt-2">
-              Deactivating keeps every completed evaluation. Historical records
-              continue to show this person.
-            </p>
-          )}
         </div>
       )}
     </li>

@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
+import { listRepresentatives, type Representative } from "@/lib/performance";
 import {
   getSpeakers,
   nameSpeaker,
@@ -146,7 +147,13 @@ function SpeakerEditor({
 }): JSX.Element {
   const [name, setName] = useState(row.name ?? "");
   const [role, setRole] = useState(row.role ?? "");
+  const [repId, setRepId] = useState(row.representative_id ?? "");
+  const [reps, setReps] = useState<Representative[]>([]);
   const [busy, setBusy] = useState(false);
+
+  useEffect(() => {
+    void listRepresentatives().then((all) => setReps(all.filter((r) => !r.is_inactive)));
+  }, []);
 
   async function save(clear = false): Promise<void> {
     setBusy(true);
@@ -154,8 +161,11 @@ function SpeakerEditor({
       const map = await nameSpeaker({
         transcriptId,
         label: row.label,
-        name: clear ? null : name,
+        // Identifying a speaker as a representative takes the name from the
+        // directory, so correcting it there corrects every transcript.
+        name: clear || repId ? null : name,
         role: clear ? null : role,
+        representativeId: clear ? null : repId || null,
       });
       await onDone(map);
     } catch (e) {
@@ -169,11 +179,41 @@ function SpeakerEditor({
     <div className="border border-rule rounded bg-ground px-3 py-3">
       <p className="font-mono text-[11.5px] text-ink-45 mb-2">{row.label}</p>
 
+      {reps.length > 0 && (
+        <label className="block mb-2.5">
+          <span className="block text-[12px] font-semibold mb-1">
+            Is this one of our representatives?
+            <span className="font-normal text-ink-45"> — keeps the name in step with the directory</span>
+          </span>
+          <select
+            value={repId}
+            onChange={(e) => {
+              setRepId(e.target.value);
+              const chosen = reps.find((r) => r.id === e.target.value);
+              if (chosen) {
+                setName(chosen.display_name);
+                setRole("Representative");
+              }
+            }}
+            className="w-full border border-rule rounded px-2.5 py-1.5 bg-white text-[13.5px]"
+          >
+            <option value="">No — someone else</option>
+            {reps.map((r) => (
+              <option key={r.id} value={r.id}>
+                {r.display_name}
+                {r.employee_ref ? ` (${r.employee_ref})` : ""}
+              </option>
+            ))}
+          </select>
+        </label>
+      )}
+
       <div className="grid sm:grid-cols-2 gap-2.5">
         <label className="block">
           <span className="block text-[12px] font-semibold mb-1">Name</span>
           <input
             value={name}
+            disabled={Boolean(repId)}
             onChange={(e) => setName(e.target.value)}
             onKeyDown={(e) => {
               if (e.key === "Enter") void save();
