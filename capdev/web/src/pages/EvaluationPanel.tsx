@@ -385,9 +385,30 @@ export function EvaluationPanel({
       </section>
       )}
 
-      {/* The reviewer's side of the same workflow: identify and classify a
-          concern, with a note and evidence. The category-less checkbox it
-          replaces could not say what kind of concern it was. */}
+      {/* A note and a risk are separate acts: an observation worth recording
+          is not necessarily a concern, and a concern does not require prose.
+          Either, both or neither. */}
+      {isRaw && (
+        <section className="mb-6">
+          <h3 className="font-display text-xl border-b border-rule pb-2 mb-4">
+            Your note
+          </h3>
+          <div className="bg-card border border-rule-soft rounded px-4 py-4 mb-6">
+            <textarea
+              disabled={locked}
+              value={evaluation.summary_note}
+              onChange={(e) =>
+                setEvaluation({ ...evaluation, summary_note: e.target.value })
+              }
+              onBlur={(e) => void patch({ summary_note: e.target.value })}
+              rows={3}
+              placeholder="Anything the trainer should know. Optional."
+              className="w-full border border-rule rounded px-2.5 py-2 text-[13px] bg-white disabled:opacity-60"
+            />
+          </div>
+        </section>
+      )}
+
       {isRaw && (
         <section className="mb-6">
           <h3 className="font-display text-xl border-b border-rule pb-2 mb-4">

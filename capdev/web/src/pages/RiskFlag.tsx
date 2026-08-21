@@ -37,6 +37,14 @@ export function RiskFlag({
 
   const canDetermine = session.permissions.includes("calibration.perform");
 
+  // A risk nobody has judged yet is the trainer's job to determine, not a
+  // reason to raise another. Splitting the list is what makes that obvious —
+  // the previous flat list put "Flag a risk" first and left determination
+  // buried, so the trainer's easiest action was the wrong one.
+  const undetermined = risks.filter((r) => r.determination === null);
+  const settled = risks.filter((r) => r.determination !== null);
+  const needsDetermination = canDetermine && undetermined.length > 0;
+
   const load = useCallback(async (): Promise<void> => {
     try {
       setRisks(await risksForCall(callId));
@@ -77,7 +85,8 @@ export function RiskFlag({
             representative&rsquo;s result.
           </p>
         </div>
-        {!adding && !locked && (
+        {/* Only the primary action when there is nothing outstanding. */}
+        {!adding && !locked && !needsDetermination && (
           <button
             onClick={() => setAdding(true)}
             className="border border-rule rounded px-3 py-1.5 text-[12.5px] hover:bg-ground-2"
@@ -140,19 +149,67 @@ export function RiskFlag({
         </div>
       )}
 
-      {risks.length > 0 && (
-        <ul className="mt-3 border-t border-rule-soft divide-y divide-rule-soft">
-          {risks.map((r) => (
-            <RiskRow
-              key={r.id}
-              risk={r}
-              canDetermine={canDetermine}
-              locked={locked}
-              onChanged={load}
-              onError={setError}
-            />
-          ))}
-        </ul>
+      {/* Awaiting determination — the trainer's actual job on this call. */}
+      {undetermined.length > 0 && (
+        <div className="mt-3 border-t border-rule-soft pt-3">
+          {canDetermine && (
+            <p className="font-mono text-[10px] tracking-[0.14em] uppercase text-[#96690A] mb-2">
+              Awaiting your determination
+            </p>
+          )}
+          <ul className="divide-y divide-rule-soft">
+            {undetermined.map((r) => (
+              <RiskRow
+                key={r.id}
+                risk={r}
+                canDetermine={canDetermine}
+                locked={locked}
+                onChanged={load}
+                onError={setError}
+              />
+            ))}
+          </ul>
+        </div>
+      )}
+
+      {/* Raising a new record is a deliberate second choice, never the
+          accidental result of reaching for the obvious button. */}
+      {needsDetermination && !adding && !locked && (
+        <div className="mt-3 border-t border-rule-soft pt-3">
+          <div className="flex items-baseline gap-3 flex-wrap">
+            <span className="text-[12.5px] text-ink-70">Found a different issue?</span>
+            <button
+              onClick={() => setAdding(true)}
+              className="border border-rule rounded px-3 py-1.5 text-[12.5px] hover:bg-ground-2"
+            >
+              Raise a different risk
+            </button>
+          </div>
+          <p className="text-[11.5px] text-ink-45 mt-1">
+            Only for a genuinely separate issue. To agree or disagree with the
+            risk above, use Determine this.
+          </p>
+        </div>
+      )}
+
+      {settled.length > 0 && (
+        <div className="mt-3 border-t border-rule-soft pt-3">
+          <p className="font-mono text-[10px] tracking-[0.14em] uppercase text-ink-45 mb-2">
+            Determined
+          </p>
+          <ul className="divide-y divide-rule-soft">
+            {settled.map((r) => (
+              <RiskRow
+                key={r.id}
+                risk={r}
+                canDetermine={canDetermine}
+                locked={locked}
+                onChanged={load}
+                onError={setError}
+              />
+            ))}
+          </ul>
+        </div>
       )}
     </section>
   );
@@ -213,7 +270,10 @@ function RiskRow({
           {label}
         </span>
         <span className="text-[12px] text-ink-45">
-          raised by {risk.identified_by_role}
+          Raised by {risk.identified_by_role}
+          {/* Determination is an act by a second participant, not a second
+              risk. Showing both on one row is the whole point. */}
+          {risk.determined_by && ` · Determined by ${risk.determined_by}`}
         </span>
         {risk.requires_escalation && (
           <span className="text-[11px] text-[#AC3A2A] border border-[#AC3A2A] rounded-full px-2 py-0.5">
@@ -308,7 +368,7 @@ function RiskRow({
         ) : (
           <button
             onClick={() => setDeciding(true)}
-            className="text-[12.5px] text-accent underline underline-offset-2 mt-1"
+            className="bg-ink text-ground border border-ink rounded px-3.5 py-1.5 text-[12.5px] font-medium mt-2 hover:opacity-85"
           >
             Determine this
           </button>
