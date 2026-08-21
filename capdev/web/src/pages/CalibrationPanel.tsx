@@ -71,6 +71,12 @@ export function CalibrationPanel({
   // Loaded once here rather than per criterion: the trainer may cite on any
   // of them, and refetching the transcript sixteen times would be wasteful.
   const [segments, setSegments] = useState<Segment[]>([]);
+  // Which criteria the trainer has closed off. Deliberately UI-only: the
+  // database already records the decision (calibrated_at) and whether it is
+  // supportable (blocker). "Done" is the trainer saying they have finished
+  // looking, which is not a fact about the evaluation and does not belong in
+  // it. Reopening loses nothing.
+  const [doneIds, setDoneIds] = useState<Set<string>>(new Set());
 
   useEffect(() => {
     void getTranscript(callId).then((t) => setSegments(t?.segments ?? []));
@@ -239,6 +245,15 @@ export function CalibrationPanel({
                     onRefresh={load}
                     speakers={speakers}
                     segments={segments}
+                    isDone={doneIds.has(row.criterion_id)}
+                    onDone={(id, done) =>
+                      setDoneIds((prev) => {
+                        const next = new Set(prev);
+                        if (done) next.add(id);
+                        else next.delete(id);
+                        return next;
+                      })
+                    }
                     onNeedEvidence={(r) => onNeedEvidence?.(r.criterion_id)}
                   />
                 </div>
@@ -352,12 +367,16 @@ function CriterionRow({
   onRefresh,
   speakers,
   segments,
+  isDone,
+  onDone,
   onNeedEvidence,
 }: {
   row: CalibrationRow;
   callId: string;
   session: Session;
   segments: Segment[];
+  isDone: boolean;
+  onDone: (criterionId: string, done: boolean) => void;
   onDecide: (row: CalibrationRow, value: Answer, note?: string) => Promise<void>;
   onPlayClip?: (startMs: number, endMs: number) => void;
   onRefresh: () => Promise<void>;
@@ -373,6 +392,41 @@ function CriterionRow({
   const decided = Boolean(row.calibrated_at);
   const variance = row.variance && row.variance !== "agreed" ? row.variance : null;
   const spec = variance ? VARIANCE_LABELS[variance] : null;
+
+  // The same blocker the submit guard uses, so Done can never mark something
+  // finished that the evaluation would then refuse to submit.
+  const canFinish = decided && !row.blocker;
+
+  // Finished: collapse to a single line. Nothing is saved or discarded by
+  // this — every decision, passage and justification is untouched underneath.
+  if (isDone) {
+    return (
+      <div
+        className="bg-card border border-rule-soft rounded mb-2.5 px-3.5 py-2.5 flex items-center gap-3 flex-wrap"
+        style={variance && spec ? { borderLeftColor: spec.colour, borderLeftWidth: 2 } : undefined}
+      >
+        <span className="text-[#1F7A4D] text-[13px] shrink-0" aria-hidden="true">
+          &#10003;
+        </span>
+        <span className="font-mono text-[11px] text-ink-45 shrink-0">{row.code}</span>
+        <span className="text-[13.5px] flex-1 min-w-0 truncate">{row.label}</span>
+        {row.value && (
+          <span className="font-mono text-[11.5px] uppercase shrink-0">{row.value}</span>
+        )}
+        {variance && spec && (
+          <span className="text-[11px] shrink-0" style={{ color: spec.colour }}>
+            {spec.label}
+          </span>
+        )}
+        <button
+          onClick={() => onDone(row.criterion_id, false)}
+          className="text-[12px] text-ink-45 underline underline-offset-2 hover:text-ink shrink-0"
+        >
+          Reopen
+        </button>
+      </div>
+    );
+  }
 
   return (
     <div
@@ -577,6 +631,26 @@ function CriterionRow({
                 </button>
               )}
             </>
+          )}
+
+          {/* Finished with this criterion — not with the calibration. Submit
+              remains the only action that submits. */}
+          {canFinish && (
+            <div className="flex justify-end mt-3 pt-2.5 border-t border-rule-soft">
+              <button
+                onClick={() => onDone(row.criterion_id, true)}
+                className="border border-ink rounded px-3.5 py-1.5 text-[12.5px] font-medium hover:bg-ground-2"
+              >
+                Done
+              </button>
+            </div>
+          )}
+          {decided && row.blocker && (
+            <p className="text-[12px] text-[#96690A] mt-3 pt-2.5 border-t border-rule-soft">
+              {row.blocker === "needs_evidence"
+                ? "Cite what supports your decision to finish this criterion."
+                : "Explain your disagreement to finish this criterion."}
+            </p>
           )}
         </div>
       </div>
