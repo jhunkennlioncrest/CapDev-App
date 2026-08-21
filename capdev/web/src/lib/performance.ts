@@ -271,3 +271,43 @@ export function trendFrom(evaluations: RepEvaluation[]): {
     basis: `first ${size} vs last ${size} of ${scored.length}`,
   };
 }
+
+
+// ---------------------------------------------------------------------------
+// Department-first selection
+//
+// With ninety representatives, one flat list is unusable. Department narrows
+// it to a handful before anyone has to read a name.
+
+export interface Department {
+  department: string;
+  active_representatives: number;
+  total_representatives: number;
+}
+
+/**
+ * Departments that actually have representatives.
+ *
+ * Derived from the directory rather than declared: a department exists because
+ * someone works in it, so there is nothing separate to maintain.
+ */
+export async function listDepartments(): Promise<Department[]> {
+  const { data, error } = await supabase
+    .from("v_departments")
+    .select("*")
+    .order("department");
+  if (error) throw new Error(error.message);
+  return ((data ?? []) as Department[]).filter((d) => d.active_representatives > 0);
+}
+
+/** Active representatives in one department, for the upload selector. */
+export async function representativesIn(department: string): Promise<Representative[]> {
+  const { data, error } = await supabase
+    .from("v_representative_directory")
+    .select("*")
+    .eq("department", department)
+    .eq("is_inactive", false)
+    .order("display_name");
+  if (error) throw new Error(error.message);
+  return (data ?? []) as Representative[];
+}

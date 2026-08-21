@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { RepresentativePicker } from "@/pages/RepresentativePicker";
 import {
   addRepresentative,
+  listDepartments,
   listRepresentatives,
   setCallRepresentative,
   unlinkedCalls,
@@ -96,8 +98,10 @@ export function EmployeeAdmin({ canManage }: { canManage: boolean }): JSX.Elemen
             <span className="font-normal text-ink-45 ml-2">{orphans.length}</span>
           </p>
           <p className="text-[12.5px] text-ink-70 mb-2.5">
-            These have a name as typed but no canonical identity, so their
-            evaluations count towards nobody.
+            These calls have an original representative name but are not yet
+            linked to a canonical employee. Assign them once so their
+            evaluations count toward the correct representative&rsquo;s history.
+            The original name is kept either way.
           </p>
           <ul className="space-y-1.5">
             {orphans.slice(0, 10).map((o) => (
@@ -113,25 +117,7 @@ export function EmployeeAdmin({ canManage }: { canManage: boolean }): JSX.Elemen
                     </span>
                   )}
                 </span>
-                <select
-                  defaultValue=""
-                  onChange={(e) => {
-                    if (e.target.value) {
-                      void setCallRepresentative(o.call_id, e.target.value).then(load);
-                    }
-                  }}
-                  className="border border-rule rounded px-2 py-1 bg-white text-[12.5px]"
-                >
-                  <option value="">Assign to&hellip;</option>
-                  {(reps ?? [])
-                    .filter((r) => !r.is_inactive)
-                    .map((r) => (
-                      <option key={r.id} value={r.id}>
-                        {r.employee_ref ? `${r.employee_ref} — ` : ""}
-                        {r.display_name}
-                      </option>
-                    ))}
-                </select>
+                <AssignCall callId={o.call_id} onAssigned={load} />
               </li>
             ))}
           </ul>
@@ -244,7 +230,7 @@ function NewRepresentative({
           value={ref}
           onChange={setRef}
         />
-        <Field label="Team or department" value={dept} onChange={setDept} />
+        <DepartmentField value={dept} onChange={setDept} />
       </div>
 
       {preview && (
@@ -370,7 +356,7 @@ function RepRow({
           </div>
           <div className="grid sm:grid-cols-2 gap-3 mb-3">
             <Field label="Employee reference" value={ref} onChange={setRef} />
-            <Field label="Team or department" value={dept} onChange={setDept} />
+            <DepartmentField value={dept} onChange={setDept} />
           </div>
           <p className="text-[12.5px] text-ink-70 mb-2.5">
             Will appear everywhere as{" "}
@@ -422,6 +408,98 @@ function Field({
         onChange={(e) => onChange(e.target.value)}
         className="w-full border border-rule rounded px-2.5 py-1.5 bg-white text-[13.5px]"
       />
+    </label>
+  );
+}
+
+
+/**
+ * Assigning an unmatched call, department first — the same narrowing the
+ * uploader gets, so the two never diverge.
+ */
+function AssignCall({
+  callId,
+  onAssigned,
+}: {
+  callId: string;
+  onAssigned: () => Promise<void>;
+}): JSX.Element {
+  const [open, setOpen] = useState(false);
+  const [repId, setRepId] = useState("");
+
+  if (!open) {
+    return (
+      <button
+        onClick={() => setOpen(true)}
+        className="border border-rule rounded px-3 py-1 bg-white text-[12.5px] hover:bg-ground-2 shrink-0"
+      >
+        Assign to&hellip;
+      </button>
+    );
+  }
+
+  return (
+    <div className="w-full sm:w-80 border border-rule rounded bg-ground px-3 py-2.5 mt-1">
+      <RepresentativePicker
+        value={repId}
+        onChange={(id) => {
+          setRepId(id);
+          if (id) {
+            void setCallRepresentative(callId, id).then(() => {
+              setOpen(false);
+              void onAssigned();
+            });
+          }
+        }}
+      />
+      <button
+        onClick={() => setOpen(false)}
+        className="text-[12px] text-ink-45 underline underline-offset-2 mt-1.5"
+      >
+        Cancel
+      </button>
+    </div>
+  );
+}
+
+/**
+ * Department, chosen from the ones in use rather than retyped.
+ *
+ * A new one can still be typed — this is the first representative in Sales,
+ * after all — but the existing spellings are one click away, which is what
+ * stops "Production" and "production" becoming two.
+ */
+function DepartmentField({
+  value,
+  onChange,
+}: {
+  value: string;
+  onChange: (v: string) => void;
+}): JSX.Element {
+  const [known, setKnown] = useState<string[]>([]);
+
+  useEffect(() => {
+    void listDepartments().then((d) => setKnown(d.map((x) => x.department)));
+  }, []);
+
+  return (
+    <label className="block">
+      <span className="block text-[12px] font-semibold mb-1">
+        Department
+        <span className="font-normal text-ink-45"> — used to narrow the upload picker</span>
+      </span>
+      <input
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        list="known-departments"
+        placeholder="Production"
+        className="w-full border border-rule rounded px-2.5 py-1.5 bg-white text-[13.5px]"
+      />
+      <datalist id="known-departments">
+        {known.map((d) => (
+          <option key={d} value={d} />
+        ))}
+      </datalist>
     </label>
   );
 }
