@@ -37,6 +37,7 @@ export function CaseStudies({
   onOpen: (id: string | null) => void;
   onPlayClip?: (startMs: number, endMs: number) => void;
 }): JSX.Element {
+  const canAuthor = session.permissions.includes("moment.create");
   const [studies, setStudies] = useState<CaseStudy[] | null>(null);
   const [creating, setCreating] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -58,6 +59,7 @@ export function CaseStudies({
     return (
       <CaseStudyEditor
         id={openId}
+        canAuthor={canAuthor}
         onPlayClip={onPlayClip}
         onBack={() => {
           onOpen(null);
@@ -87,12 +89,14 @@ export function CaseStudies({
           A completed evaluation says what happened. A case study says what it
           taught us.
         </p>
-        <button
-          onClick={() => setCreating(true)}
-          className="bg-ink text-ground border border-ink rounded px-4 py-2 text-sm font-medium hover:opacity-85"
-        >
-          Write a case study
-        </button>
+        {canAuthor && (
+          <button
+            onClick={() => setCreating(true)}
+            className="bg-ink text-ground border border-ink rounded px-4 py-2 text-sm font-medium hover:opacity-85"
+          >
+            Write a case study
+          </button>
+        )}
       </div>
 
       {error && <p className="text-[13px] text-[#AC3A2A] mb-3">{error}</p>}
@@ -103,8 +107,9 @@ export function CaseStudies({
         <div className="border border-dashed border-rule rounded bg-card px-8 py-12 text-center">
           <h2 className="font-display text-2xl mb-2">No case studies yet</h2>
           <p className="text-ink-70 max-w-md mx-auto">
-            Start from a completed evaluation. The evidence and the moments are
-            already there &mdash; your part is what it means.
+            {canAuthor
+              ? "Start from a completed evaluation. The evidence and the moments are already there — your part is what it means."
+              : "Trainers write these up from completed calibrations. They will appear here."}
           </p>
         </div>
       ) : (
@@ -378,10 +383,12 @@ function CaseStudyEditor({
   id,
   onBack,
   onPlayClip,
+  canAuthor,
 }: {
   id: string;
   onBack: () => void;
   onPlayClip?: (startMs: number, endMs: number) => void;
+  canAuthor: boolean;
 }): JSX.Element {
   const [study, setStudy] = useState<CaseStudy | null>(null);
   const [sources, setSources] = useState<
@@ -573,6 +580,7 @@ function CaseStudyEditor({
         />
       </section>
 
+      {canAuthor && (
       <div className="border-t border-rule mt-8 pt-4">
         <button
           onClick={() => {
@@ -583,6 +591,7 @@ function CaseStudyEditor({
           Archive this case study
         </button>
       </div>
+      )}
     </div>
   );
 }

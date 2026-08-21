@@ -16,7 +16,7 @@ import {
  * never will — an account and an evaluated employee are different things that
  * happen to share the same person record.
  */
-export function EmployeeAdmin(): JSX.Element {
+export function EmployeeAdmin({ canManage }: { canManage: boolean }): JSX.Element {
   const [reps, setReps] = useState<Representative[] | null>(null);
   const [counts, setCounts] = useState<Record<string, number>>({});
   const [orphans, setOrphans] = useState<
@@ -72,12 +72,14 @@ export function EmployeeAdmin(): JSX.Element {
           People whose calls are evaluated. They do not need a login &mdash; most
           representatives never sign in to CapDev.
         </p>
-        <button
-          onClick={() => setAdding(true)}
-          className="bg-ink text-ground border border-ink rounded px-4 py-2 text-sm font-medium hover:opacity-85"
-        >
-          Add a representative
-        </button>
+        {canManage && (
+          <button
+            onClick={() => setAdding(true)}
+            className="bg-ink text-ground border border-ink rounded px-4 py-2 text-sm font-medium hover:opacity-85"
+          >
+            Add a representative
+          </button>
+        )}
       </div>
 
       {error && <p className="text-[13px] text-[#AC3A2A] mb-3">{error}</p>}
@@ -117,7 +119,7 @@ export function EmployeeAdmin(): JSX.Element {
       )}
 
       {/* Work that counts for nobody, surfaced rather than left to rot. */}
-      {orphans.length > 0 && (
+      {canManage && orphans.length > 0 && (
         <div className="border border-[#96690A] rounded bg-card px-4 py-3.5 mb-4">
           <p className="text-[13px] font-semibold mb-1.5">
             {orphans.length} call{orphans.length === 1 ? "" : "s"} not linked to a
@@ -179,6 +181,7 @@ export function EmployeeAdmin(): JSX.Element {
             <RepRow
               key={r.id}
               rep={r}
+              canManage={canManage}
               evaluations={counts[r.id] ?? 0}
               onChanged={load}
               onError={setError}
@@ -195,7 +198,9 @@ function RepRow({
   evaluations,
   onChanged,
   onError,
+  canManage,
 }: {
+  canManage: boolean;
   rep: Representative;
   evaluations: number;
   onChanged: () => Promise<void>;
@@ -241,6 +246,7 @@ function RepRow({
           </p>
         </div>
 
+        {canManage && (
         <div className="flex gap-2 shrink-0">
           <button
             onClick={() => setEditing((e) => !e)}
@@ -265,6 +271,7 @@ function RepRow({
             </button>
           )}
         </div>
+        )}
       </div>
 
       {editing && (

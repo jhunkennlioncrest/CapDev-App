@@ -40,6 +40,9 @@ export function KnowledgeArticles({
   openId: string | null;
   onOpen: (id: string | null) => void;
 }): JSX.Element {
+  // Reading the Library is for everyone; authoring it is the trainer's act.
+  // Offering a button the account cannot use is worse than not offering it.
+  const canAuthor = session.permissions.includes("moment.create");
   const [articles, setArticles] = useState<KnowledgeArticle[] | null>(null);
   const [title, setTitle] = useState("");
   const [creating, setCreating] = useState(false);
@@ -77,6 +80,7 @@ export function KnowledgeArticles({
     return (
       <ArticleEditor
         id={openId}
+        canAuthor={canAuthor}
         onBack={() => {
           onOpen(null);
           void load();
@@ -92,12 +96,14 @@ export function KnowledgeArticles({
           Everything the organisation knows about one subject. A procedure is one
           section among several &mdash; plenty of articles have none.
         </p>
-        <button
-          onClick={() => setCreating(true)}
-          className="bg-ink text-ground border border-ink rounded px-4 py-2 text-sm font-medium hover:opacity-85"
-        >
-          New article
-        </button>
+        {canAuthor && (
+          <button
+            onClick={() => setCreating(true)}
+            className="bg-ink text-ground border border-ink rounded px-4 py-2 text-sm font-medium hover:opacity-85"
+          >
+            New article
+          </button>
+        )}
       </div>
 
       {error && <p className="text-[13px] text-[#AC3A2A] mb-3">{error}</p>}
@@ -187,7 +193,15 @@ export function KnowledgeArticles({
   );
 }
 
-function ArticleEditor({ id, onBack }: { id: string; onBack: () => void }): JSX.Element {
+function ArticleEditor({
+  id,
+  onBack,
+  canAuthor,
+}: {
+  id: string;
+  onBack: () => void;
+  canAuthor: boolean;
+}): JSX.Element {
   const [article, setArticle] = useState<KnowledgeArticle | null>(null);
   const [sections, setSections] = useState<ArticleSection[]>([]);
   const [references, setReferences] = useState<ArticleReference[]>([]);
@@ -245,12 +259,16 @@ function ArticleEditor({ id, onBack }: { id: string; onBack: () => void }): JSX.
       </button>
 
       <div className="flex justify-between items-baseline gap-4 flex-wrap mt-3">
-        <input
-          value={article.title}
-          onChange={(e) => setArticle({ ...article, title: e.target.value })}
-          onBlur={(e) => void saveArticle({ title: e.target.value })}
-          className="font-display text-3xl bg-transparent border-0 border-b border-transparent hover:border-rule focus:border-ink focus:outline-none flex-1 min-w-0"
-        />
+        {canAuthor ? (
+          <input
+            value={article.title}
+            onChange={(e) => setArticle({ ...article, title: e.target.value })}
+            onBlur={(e) => void saveArticle({ title: e.target.value })}
+            className="font-display text-3xl bg-transparent border-0 border-b border-transparent hover:border-rule focus:border-ink focus:outline-none flex-1 min-w-0"
+          />
+        ) : (
+          <h2 className="font-display text-3xl flex-1 min-w-0">{article.title}</h2>
+        )}
         {savedAt && (
           <span className="text-[12px] text-ink-45">Saved {savedAt.toLocaleTimeString()}</span>
         )}
@@ -284,12 +302,15 @@ function ArticleEditor({ id, onBack }: { id: string; onBack: () => void }): JSX.
         />
       ))}
 
+      {canAuthor && (
       <ReferenceList
         articleId={id}
         references={references}
         onChanged={load}
       />
+      )}
 
+      {canAuthor && (
       <div className="mt-4">
         {addingKind ? (
           <div className="bg-card border border-rule-soft rounded px-4 py-3.5">
@@ -327,6 +348,7 @@ function ArticleEditor({ id, onBack }: { id: string; onBack: () => void }): JSX.
           </button>
         )}
       </div>
+      )}
     </div>
   );
 }

@@ -43,6 +43,8 @@ type Tab = "users" | "employees" | "roles" | "rubrics" | "integrations" | "organ
  */
 export function AdminWorkspace({ session }: { session: Session }): JSX.Element {
   const [tab, setTab] = useState<Tab>("users");
+  // Reaching Administration is not the same as being able to change it.
+  const canManagePeople = session.permissions.includes("person.manage");
 
   return (
     <div className="max-w-6xl mx-auto px-6 pb-20">
@@ -70,7 +72,7 @@ export function AdminWorkspace({ session }: { session: Session }): JSX.Element {
 
       {tab === "users" && <UsersSection session={session} />}
       {tab === "roles" && <RolesSection session={session} />}
-      {tab === "employees" && <EmployeeAdmin />}
+      {tab === "employees" && <EmployeeAdmin canManage={canManagePeople} />}
       {tab === "rubrics" && <RubricAdmin />}
       {tab === "integrations" && <IntegrationsSection />}
       {tab === "organization" && <OrganizationSection session={session} />}
