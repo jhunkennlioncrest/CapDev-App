@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { resolveSpeakersInText } from "@/lib/speakers";
 import { useSpeakers } from "@/lib/useSpeakers";
 import { CalibrationPanel } from "@/pages/CalibrationPanel";
+import { RiskFlag } from "@/pages/RiskFlag";
 import {
   getScores,
   openEvaluation,
@@ -357,19 +358,16 @@ export function EvaluationPanel({
             </div>
           </label>
 
-          <label className="flex items-start gap-2.5">
-            <input
-              type="checkbox"
-              disabled={locked}
-              checked={evaluation.is_high_risk}
-              onChange={(e) => void patch({ is_high_risk: e.target.checked })}
-              className="mt-1"
-            />
-            <span className="text-[13px]">
-              <span className="font-semibold">High-risk or escalation call</span>
-              <span className="text-ink-45"> — refund threat, grievance, or similar</span>
-            </span>
-          </label>
+          {/* The checkbox that used to sit here only set a boolean: it said
+              nothing about what the risk was, and gave the trainer no way to
+              agree or disagree with the reviewer. Replaced by the actual
+              determination, which is the decision being made. */}
+          <RiskFlag
+            callId={callId}
+            evaluationId={evaluation.id}
+            session={session}
+            locked={locked}
+          />
 
           <label className="block">
             <span className="block text-[12px] font-semibold mb-1.5">Summary</span>
@@ -387,41 +385,20 @@ export function EvaluationPanel({
       </section>
       )}
 
+      {/* The reviewer's side of the same workflow: identify and classify a
+          concern, with a note and evidence. The category-less checkbox it
+          replaces could not say what kind of concern it was. */}
       {isRaw && (
         <section className="mb-6">
-          <h3 className="font-display text-xl border-b border-rule pb-2 mb-4">Escalation</h3>
-          <div className="bg-card border border-rule-soft rounded px-4 py-4 space-y-3">
-            <label className="flex items-start gap-2.5">
-              <input
-                type="checkbox"
-                disabled={locked}
-                checked={evaluation.is_high_risk}
-                onChange={(e) => void patch({ is_high_risk: e.target.checked })}
-                className="mt-1"
-              />
-              <span className="text-[13px]">
-                <span className="font-semibold">Escalation or risk indicator present</span>
-                <span className="text-ink-45">
-                  {" "}— refund threat, grievance, or similar
-                </span>
-              </span>
-            </label>
-            {evaluation.is_high_risk && (
-              <input
-                disabled={locked}
-                value={evaluation.escalation_note}
-                onChange={(e) =>
-                  setEvaluation({ ...evaluation, escalation_note: e.target.value })
-                }
-                onBlur={(e) => void patch({ escalation_note: e.target.value })}
-                placeholder="What you heard, factually."
-                className="w-full border border-rule rounded px-2.5 py-2 bg-white text-sm"
-              />
-            )}
-            <p className="text-[12px] text-ink-45">
-              A trainer decides the outcome. Record what you observed and submit.
-            </p>
-          </div>
+          <h3 className="font-display text-xl border-b border-rule pb-2 mb-4">
+            Risk &amp; escalation
+          </h3>
+          <RiskFlag
+            callId={callId}
+            evaluationId={evaluation.id}
+            session={session}
+            locked={locked}
+          />
         </section>
       )}
 

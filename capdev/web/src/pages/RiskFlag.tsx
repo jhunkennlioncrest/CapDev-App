@@ -21,10 +21,13 @@ export function RiskFlag({
   callId,
   evaluationId,
   session,
+  locked = false,
 }: {
   callId: string;
   evaluationId: string;
   session: Session;
+  /** Submitted evaluations are frozen; existing risks stay readable. */
+  locked?: boolean;
 }): JSX.Element {
   const [risks, setRisks] = useState<RiskRecord[]>([]);
   const [adding, setAdding] = useState(false);
@@ -74,7 +77,7 @@ export function RiskFlag({
             representative&rsquo;s result.
           </p>
         </div>
-        {!adding && (
+        {!adding && !locked && (
           <button
             onClick={() => setAdding(true)}
             className="border border-rule rounded px-3 py-1.5 text-[12.5px] hover:bg-ground-2"
@@ -144,6 +147,7 @@ export function RiskFlag({
               key={r.id}
               risk={r}
               canDetermine={canDetermine}
+              locked={locked}
               onChanged={load}
               onError={setError}
             />
@@ -154,28 +158,43 @@ export function RiskFlag({
   );
 }
 
+const CATEGORY_LABEL = Object.fromEntries(
+  RISK_CATEGORIES.map((c) => [c.value, c.label]),
+) as Record<string, string>;
+
 function RiskRow({
   risk,
   canDetermine,
+  locked,
   onChanged,
   onError,
 }: {
   risk: RiskRecord;
   canDetermine: boolean;
+  locked: boolean;
   onChanged: () => Promise<void>;
   onError: (m: string) => void;
 }): JSX.Element {
   const [deciding, setDeciding] = useState(false);
   const [reason, setReason] = useState("");
-  const [escalate, setEscalate] = useState(false);
+  const [category, setCategory] = useState<RiskCategory>(risk.category);
 
-  async function decide(determination: "valid" | "not_a_risk"): Promise<void> {
+  /**
+   * One choice with three outcomes, because that is the decision the trainer
+   * is actually making. The database stores it as a determination plus an
+   * escalation flag; the trainer should not have to assemble that themselves.
+   */
+  async function decide(
+    outcome: "not_a_risk" | "valid" | "escalate",
+  ): Promise<void> {
     try {
       await determineRisk({
         riskId: risk.id,
-        determination,
+        determination: outcome === "not_a_risk" ? "not_a_risk" : "valid",
         note: reason,
-        requiresEscalation: determination === "valid" && escalate,
+        // Reclassifying keeps the raiser's original: 0055 records it.
+        category: category !== risk.category ? category : undefined,
+        requiresEscalation: outcome === "escalate",
       });
       setDeciding(false);
       await onChanged();
@@ -208,15 +227,50 @@ function RiskRow({
 
       {/* The determination sits beside the observation, never replacing it. */}
       {risk.determination ? (
-        <p className="text-[12.5px] text-ink-70 mt-1">
-          <span className="font-semibold">
-            {risk.determination === "valid" ? "Confirmed" : "Not a risk"}
-          </span>
-          {risk.determination_note && ` — ${risk.determination_note}`}
-        </p>
-      ) : canDetermine ? (
+        <>
+          <p className="text-[12.5px] text-ink-70 mt-1">
+            <span className="font-semibold">
+              {risk.determination === "not_a_risk"
+                ? "Not a risk"
+                : risk.requires_escalation
+                  ? "Escalation required"
+                  : "Valid risk"}
+            </span>
+            {risk.determination_note && ` — ${risk.determination_note}`}
+          </p>
+          {/* Both classifications, so a disagreement reads as one. */}
+          {risk.was_reclassified && risk.original_category && (
+            <p className="text-[11.5px] text-ink-45 mt-0.5">
+              Raw QA called this{" "}
+              {CATEGORY_LABEL[risk.original_category] ?? risk.original_category}
+            </p>
+          )}
+        </>
+      ) : canDetermine && !locked ? (
         deciding ? (
           <div className="mt-2">
+            {/* Reclassifying is allowed; the raiser's category is kept. */}
+            <label className="block mb-2">
+              <span className="block text-[12px] font-semibold mb-1">
+                Type
+                {category !== risk.category && (
+                  <span className="font-normal text-ink-45">
+                    {" "}— was {CATEGORY_LABEL[risk.category] ?? risk.category}
+                  </span>
+                )}
+              </span>
+              <select
+                value={category}
+                onChange={(e) => setCategory(e.target.value as RiskCategory)}
+                className="w-full border border-rule rounded px-2.5 py-1.5 bg-white text-[13.5px]"
+              >
+                {RISK_CATEGORIES.map((c) => (
+                  <option key={c.value} value={c.value}>
+                    {c.label}
+                  </option>
+                ))}
+              </select>
+            </label>
             <textarea
               value={reason}
               onChange={(e) => setReason(e.target.value)}
@@ -224,26 +278,24 @@ function RiskRow({
               placeholder="Why — the reviewer will read this"
               className="w-full border border-rule rounded px-2.5 py-2 text-[13px] mb-2"
             />
-            <label className="flex items-center gap-2 text-[12.5px] mb-2">
-              <input
-                type="checkbox"
-                checked={escalate}
-                onChange={(e) => setEscalate(e.target.checked)}
-              />
-              Needs action outside QA
-            </label>
-            <div className="flex gap-2">
+            <div className="flex gap-2 flex-wrap">
+              <button
+                onClick={() => void decide("not_a_risk")}
+                className="border border-rule rounded px-3 py-1.5 text-[12.5px] hover:bg-ground-2"
+              >
+                No risk
+              </button>
               <button
                 onClick={() => void decide("valid")}
                 className="bg-ink text-ground border border-ink rounded px-3 py-1.5 text-[12.5px]"
               >
-                Confirm risk
+                Valid risk
               </button>
               <button
-                onClick={() => void decide("not_a_risk")}
-                className="border border-rule rounded px-3 py-1.5 text-[12.5px]"
+                onClick={() => void decide("escalate")}
+                className="border border-[#AC3A2A] text-[#AC3A2A] rounded px-3 py-1.5 text-[12.5px] hover:bg-ground-2"
               >
-                Not a risk
+                Escalation required
               </button>
               <button
                 onClick={() => setDeciding(false)}

@@ -29,6 +29,9 @@ export interface RiskRecord {
   employee_ref: string | null;
   department: string | null;
   category: RiskCategory;
+  /** What the raiser called it, kept only if a trainer reclassified. */
+  original_category: RiskCategory | null;
+  was_reclassified: boolean;
   note: string;
   raised_by_kind: "raw_observation" | "calibrated";
   identified_by_role: string;
@@ -53,8 +56,11 @@ export interface RiskSummary {
   open: number;
   resolved: number;
   closed: number;
+  /** Only what a trainer explicitly escalated — never a pre-calibration flag. */
   open_escalations: number;
+  /** Raised but not yet judged. Deliberately not counted as an escalation. */
   awaiting_determination: number;
+  confirmed_open: number;
 }
 
 /** The register. RLS scopes it: reviewers see what they raised. */
