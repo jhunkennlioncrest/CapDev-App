@@ -311,3 +311,86 @@ export async function representativesIn(department: string): Promise<Representat
   if (error) throw new Error(error.message);
   return (data ?? []) as Representative[];
 }
+
+
+// ---------------------------------------------------------------------------
+// Calibration accuracy
+//
+// A THIRD metric, and the one most easily confused with the other two. It says
+// how often a reviewer's observation matched the trainer's final decision. It
+// is not the representative's score and never appears as one.
+
+export interface CalibrationAccuracy {
+  reviewer_id: string;
+  reviewer_name: string;
+  compared: number;
+  aligned: number;
+  disagreements: number;
+  /** Null when nothing has been calibrated yet — never 0, which would read as bad work. */
+  accuracy: number | null;
+  calibrations: number;
+  last_calibrated_at: string | null;
+}
+
+export interface CalibrationComparison {
+  criterion_code: string;
+  criterion_label: string;
+  raw_value: string;
+  trainer_value: string;
+  trainer_justification: string;
+  variance: string;
+  aligned: boolean;
+  call_id: string;
+  submitted_at: string;
+}
+
+/**
+ * Accuracy for one reviewer, or for everyone the caller may see.
+ *
+ * RLS decides the visibility: a reviewer sees their own row, a trainer or
+ * manager sees the reviewers they oversee. Nothing is filtered here that the
+ * database would not already refuse.
+ */
+export async function calibrationAccuracy(
+  reviewerId?: string,
+): Promise<CalibrationAccuracy[]> {
+  let q = supabase.from("v_calibration_accuracy").select("*");
+  if (reviewerId) q = q.eq("reviewer_id", reviewerId);
+  const { data, error } = await q.order("accuracy", { ascending: false });
+  if (error) throw new Error(error.message);
+  return (data ?? []) as CalibrationAccuracy[];
+}
+
+/** The disagreements themselves — developmental feedback, not a verdict. */
+export async function calibrationDisagreements(
+  reviewerId: string,
+): Promise<CalibrationComparison[]> {
+  const { data, error } = await supabase
+    .from("v_calibration_comparison")
+    .select("*")
+    .eq("reviewer_id", reviewerId)
+    .eq("aligned", false)
+    .order("submitted_at", { ascending: false })
+    .limit(50);
+  if (error) throw new Error(error.message);
+  return (data ?? []) as CalibrationComparison[];
+}
+
+export interface CalibrationHotspot {
+  criterion_code: string;
+  criterion_label: string;
+  compared: number;
+  disagreements: number;
+  disagreement_rate: number;
+}
+
+/** Criteria the rubric is being read two ways on. */
+export async function calibrationHotspots(): Promise<CalibrationHotspot[]> {
+  const { data, error } = await supabase
+    .from("v_calibration_hotspots")
+    .select("*")
+    .order("disagreement_rate", { ascending: false })
+    .limit(5);
+  if (error) throw new Error(error.message);
+  return (data ?? []) as CalibrationHotspot[];
+}

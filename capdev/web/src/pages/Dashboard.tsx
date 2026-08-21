@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
+import { CalibrationAccuracySection } from "@/pages/CalibrationAccuracySection";
 import { supabase } from "@/lib/supabase";
 import { listCalls, signedUrlFor } from "@/lib/calls";
 import { formatBytes, formatDate, formatDuration } from "@/lib/format";
@@ -126,6 +127,10 @@ export function Dashboard({
           </ul>
         )}
       </div>
+
+      {/* Separate from the recordings above and from representative scoring:
+          this measures the QA process, not the representative. */}
+      <CalibrationAccuracySection session={session} onOpenCall={onOpenCall} />
 
       {uploading && (
         <UploadDialog
