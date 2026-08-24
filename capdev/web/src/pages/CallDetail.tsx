@@ -49,6 +49,7 @@ export function CallDetail({ callId, session, onBack }: Props): JSX.Element {
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const audioRef = useRef<HTMLAudioElement>(null);
+  const playerRef = useRef<HTMLDivElement>(null);
   const activeRef = useRef<HTMLLIElement>(null);
   const [followAlong, setFollowAlong] = useState(true);
   // Identity is resolved at render, so a rename shows everywhere at once.
@@ -158,6 +159,84 @@ export function CallDetail({ callId, session, onBack }: Props): JSX.Element {
   }
 
   /** Plays a bounded span and stops at its end. */
+  /** Publishes the player's height so the rubric bar can stack beneath it. */
+  useEffect(() => {
+    const el = playerRef.current;
+    if (!el) {
+      document.documentElement.style.setProperty("--player-h", "0px");
+      return;
+    }
+    const publish = (): void => {
+      document.documentElement.style.setProperty("--player-h", `${el.offsetHeight}px`);
+    };
+    publish();
+    const ro = new ResizeObserver(publish);
+    ro.observe(el);
+    return () => {
+      ro.disconnect();
+      document.documentElement.style.setProperty("--player-h", "0px");
+    };
+  }, [audioUrl]);
+
+  /**
+   * Playback from the keyboard, so a reviewer working through the rubric can
+   * pause or scrub without reaching for the mouse.
+   *
+   * Operates on the existing audioRef — there is no second player and no
+   * second playback state. The guard matters more than the shortcuts: Space
+   * inside a note must type a space, and Space on a focused audio element or
+   * slider must not fire twice.
+   */
+  useEffect(() => {
+    function onKey(e: KeyboardEvent): void {
+      if (e.key !== " " && e.key !== "ArrowLeft" && e.key !== "ArrowRight") return;
+      if (e.metaKey || e.ctrlKey || e.altKey) return;
+
+      const el = e.target as HTMLElement | null;
+      if (el) {
+        const tag = el.tagName;
+        if (
+          tag === "INPUT" ||
+          tag === "TEXTAREA" ||
+          tag === "SELECT" ||
+          tag === "AUDIO" ||
+          tag === "VIDEO" ||
+          el.isContentEditable ||
+          // A focused slider or button already handles these keys natively;
+          // acting as well would seek twice or toggle twice per press.
+          el.getAttribute("role") === "slider" ||
+          (tag === "BUTTON" && e.key === " ")
+        ) {
+          return;
+        }
+      }
+
+      const audio = audioRef.current;
+      if (!audio) return;
+
+      if (e.key === " ") {
+        e.preventDefault();
+        if (audio.paused) void audio.play();
+        else audio.pause();
+        return;
+      }
+
+      // Scrubbing leaves any clip boundary behind: the reviewer has taken
+      // manual control, so stopping at a cited passage's end is no longer
+      // what they asked for.
+      e.preventDefault();
+      clipEndRef.current = null;
+      const delta = e.key === "ArrowLeft" ? -5 : 5;
+      audio.currentTime = Math.min(
+        Math.max(0, audio.currentTime + delta),
+        audio.duration || Number.MAX_SAFE_INTEGER,
+      );
+    }
+
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, []);
+
   function playClip(startMs: number, endMs: number): void {
     if (!audioRef.current) return;
     clipEndRef.current = endMs;
@@ -193,7 +272,7 @@ export function CallDetail({ callId, session, onBack }: Props): JSX.Element {
   }
 
   return (
-    <div className="max-w-5xl mx-auto px-6 pb-20">
+    <div className="max-w-5xl mx-auto px-6 pb-28">
       <header className="pt-8 pb-5 border-b border-rule">
         <button onClick={onBack} className="text-[13px] text-ink-45 hover:text-ink underline underline-offset-2">
           &larr; All calls
@@ -238,8 +317,15 @@ export function CallDetail({ callId, session, onBack }: Props): JSX.Element {
 
       {error && <p className="mt-5 text-[13px] text-[#AC3A2A]">{error}</p>}
 
+      {/* Pinned below the navigation, not underneath it. z-10 was the bug:
+          EvaluationPanel's own sticky bar sits at top-0 z-20, so the player
+          was covered the moment the rubric scrolled up. */}
       {audioUrl ? (
-        <div className="sticky top-0 z-10 bg-ground pt-4 pb-3 border-b border-rule-soft">
+        <div
+          ref={playerRef}
+          className="sticky z-20 bg-ground pt-4 pb-3 border-b border-rule-soft"
+          style={{ top: "var(--app-header-h, 0px)" }}
+        >
           <audio
             ref={audioRef}
             controls

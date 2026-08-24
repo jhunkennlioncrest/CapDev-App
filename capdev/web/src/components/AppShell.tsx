@@ -1,4 +1,4 @@
-import type { ReactNode } from "react";
+import { useEffect, useRef, type ReactNode } from "react";
 import { supabase } from "@/lib/supabase";
 import type { Session } from "@/lib/types";
 import { EnvironmentBadge } from "@/components/EnvironmentBadge";
@@ -44,9 +44,58 @@ export function AppShell({
 }): JSX.Element {
   const items = visibleWorkspaces(session.permissions);
 
+  const headerRef = useRef<HTMLElement>(null);
+
+
+  /**
+
+   * Publishes the header's height as --app-header-h.
+
+   *
+
+   * Anything that needs to sit below the navigation reads this rather than
+
+   * guessing a pixel value — the header grows when the nav tabs wrap on a
+
+   * narrow screen, and a hardcoded offset would be wrong exactly then.
+
+   */
+
+  useEffect(() => {
+
+    const el = headerRef.current;
+
+    if (!el) return;
+
+    const publish = (): void => {
+
+      document.documentElement.style.setProperty(
+
+        "--app-header-h",
+
+        `${el.offsetHeight}px`,
+
+      );
+
+    };
+
+    publish();
+
+    const ro = new ResizeObserver(publish);
+
+    ro.observe(el);
+
+    return () => ro.disconnect();
+
+  }, []);
+
+
   return (
     <div className="min-h-screen">
-      <header className="border-b border-rule bg-ground sticky top-0 z-30">
+      <header
+        ref={headerRef}
+        className="border-b border-rule bg-ground sticky top-0 z-30"
+      >
         <div className="max-w-6xl mx-auto px-6">
           <div className="flex justify-between items-center pt-4 pb-2 gap-4">
             <span className="flex items-center gap-2.5">

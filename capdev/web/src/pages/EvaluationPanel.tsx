@@ -196,7 +196,12 @@ export function EvaluationPanel({
   return (
     <div>
       {/* Running state. Sticky because it is the thing an evaluator glances at. */}
-      <div className="sticky top-0 z-20 bg-ground border-b border-rule py-3 mb-5">
+      {/* Sits under the player, not over it. Both offsets are measured at
+          runtime so neither breaks when the nav or player wraps. */}
+      <div
+        className="sticky z-10 bg-ground border-b border-rule py-3 mb-5"
+        style={{ top: "calc(var(--app-header-h, 0px) + var(--player-h, 0px))" }}
+      >
         <div className="flex justify-between items-center gap-4 flex-wrap">
           <div>
             <p className="font-mono text-[10px] tracking-[0.14em] uppercase text-ink-45">
