@@ -36,10 +36,12 @@ interface Counts {
 export function HomeDashboard({
   session,
   onNavigate,
+  onOpenCall,
   onOpenRepPerformance,
 }: {
   session: Session;
   onNavigate: (w: Workspace) => void;
+  onOpenCall: (callId: string) => void;
   /** Rep performance lives under the Dashboard, not as its own workspace. */
   onOpenRepPerformance?: (repId?: string) => void;
 }): JSX.Element {
