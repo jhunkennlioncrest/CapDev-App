@@ -36,7 +36,6 @@ interface Counts {
 export function HomeDashboard({
   session,
   onNavigate,
-  onOpenCall,
   onOpenRepPerformance,
 }: {
   session: Session;
