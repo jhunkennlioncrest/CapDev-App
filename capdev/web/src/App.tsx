@@ -1,4 +1,6 @@
 import { useEffect, useState } from "react";
+import { pendingSetup } from "@/lib/accountSetup";
+import { SetPasswordScreen } from "@/pages/SetPasswordScreen";
 import { RepPerformance } from "@/pages/RepPerformance";
 import { useSession } from "@/lib/useSession";
 import { AppShell, visibleWorkspaces, type Workspace } from "@/components/AppShell";
@@ -31,6 +33,8 @@ export default function App(): JSX.Element {
     void verifyEnvironment().then(setEnvCheck);
   }, []);
   const [workspace, setWorkspace] = useState<Workspace>("dashboard");
+  // Captured at module load, before Supabase cleared the hash.
+  const [setup, setSetup] = useState(() => pendingSetup());
   // A sub-view of the Dashboard rather than a workspace: management
   // analytics do not belong in the operational navigation.
   const [repPerformance, setRepPerformance] = useState<{ open: boolean; repId?: string }>({
@@ -54,6 +58,21 @@ export default function App(): JSX.Element {
       </main>
     );
   }
+  // Above the session checks, deliberately. An invite or recovery link gives
+  // the user a real session, so every status below would wave them straight
+  // into the application with no password ever set. Holding a session is not
+  // the same as having finished setting one up.
+  if (setup) {
+    return (
+      <SetPasswordScreen
+        kind={setup}
+        // Re-read once the password is saved: the same session is now a
+        // completed account, and normal routing takes over.
+        onDone={() => setSetup(null)}
+      />
+    );
+  }
+
   if (state.status === "signed-out") return <SignIn />;
   if (state.status === "no-access") return <NoAccess email={state.email} />;
 
@@ -107,6 +126,7 @@ export default function App(): JSX.Element {
           />
         ) : (
           <HomeDashboard
+            onOpenCall={openCall}
             session={session}
             onNavigate={setWorkspace}
             onOpenRepPerformance={(repId) => setRepPerformance({ open: true, repId })}

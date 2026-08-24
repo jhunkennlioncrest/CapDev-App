@@ -1,8 +1,9 @@
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { supabase } from "@/lib/supabase";
 import { EnvironmentBadge } from "@/components/EnvironmentBadge";
 
-type Mode = "choose" | "email" | "reset" | "sent" | "set-password";
+type Mode = "choose" | "email" | "reset" | "sent";
+
 
 /**
  * Two ways in, one identity model.
@@ -23,17 +24,7 @@ export function SignIn(): JSX.Element {
   const [password, setPassword] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [notice, setNotice] = useState<string | null>(null);
 
-  // A recovery link returns the user here with a temporary session. Without
-  // this they would land in the application with no way to set a password.
-  useEffect(() => {
-    const { data: sub } = supabase.auth.onAuthStateChange((event) => {
-      if (event === "PASSWORD_RECOVERY") setMode("set-password");
-    });
-    if (window.location.hash.includes("type=recovery")) setMode("set-password");
-    return () => sub.subscription.unsubscribe();
-  }, []);
 
   async function withGoogle(): Promise<void> {
     await supabase.auth.signInWithOAuth({
@@ -83,21 +74,6 @@ export function SignIn(): JSX.Element {
     setMode("sent");
   }
 
-  async function savePassword(): Promise<void> {
-    if (password.length < 8) {
-      setError("Use at least 8 characters.");
-      return;
-    }
-    setBusy(true);
-    setError(null);
-    const { error: err } = await supabase.auth.updateUser({ password });
-    setBusy(false);
-    if (err) {
-      setError(err.message);
-      return;
-    }
-    setNotice("Password saved. Signing you in\u2026");
-  }
 
   return (
     <main className="min-h-screen grid place-items-center px-6">
@@ -112,31 +88,7 @@ export function SignIn(): JSX.Element {
           <h1 className="font-display text-4xl mt-2 mb-8">Moment Library</h1>
         </div>
 
-        {mode === "set-password" ? (
-          <>
-            <p className="text-[13.5px] text-ink-70 mb-4">
-              Choose a password for your work email account.
-            </p>
-            <Field label="New password">
-              <input
-                type="password"
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                autoFocus
-                className={inputClass}
-              />
-            </Field>
-            {error && <Message tone="error">{error}</Message>}
-            {notice && <Message tone="ok">{notice}</Message>}
-            <button
-              onClick={() => void savePassword()}
-              disabled={busy || password.length === 0}
-              className={primaryClass}
-            >
-              {busy ? "Saving\u2026" : "Save password"}
-            </button>
-          </>
-        ) : mode === "sent" ? (
+        {mode === "sent" ? (
           <>
             <h2 className="font-display text-2xl mb-2">Check your work email</h2>
             <p className="text-[13.5px] text-ink-70 mb-5">
