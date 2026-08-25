@@ -22,11 +22,22 @@ export async function sendInvitation(personId: string): Promise<InvitationStatus
     body: { personId },
   });
 
-  // A non-2xx still carries the status in the body; prefer it over the
-  // transport error so the administrator gets a specific message.
   const status = (data as { status?: InvitationStatus } | null)?.status;
   if (status) return status;
-  if (error) return "failed";
+
+  // On a non-2xx, supabase-js leaves data null and the body unparsed — the
+  // status the function sent is only reachable through error.context. Without
+  // this, "not_allowed" and "rate_limited" both collapsed into "failed" and
+  // the administrator was told nothing useful.
+  const context = (error as { context?: Response } | null)?.context;
+  if (context && typeof context.text === "function") {
+    try {
+      const parsed = JSON.parse(await context.text()) as { status?: InvitationStatus };
+      if (parsed?.status) return parsed.status;
+    } catch {
+      // Unreadable or not JSON; fall through to the generic failure.
+    }
+  }
   return "failed";
 }
 

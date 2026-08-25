@@ -253,17 +253,46 @@ export interface TranscriptionJob {
  * which holds the credentials and could be pointed at a different provider
  * without changing a line of this file (INV-62).
  */
+/**
+ * The message an Edge Function actually returned.
+ *
+ * On a non-2xx, supabase-js does not parse the body: `data` is null and
+ * `error` is a FunctionsHttpError whose generic text is "Edge Function
+ * returned a non-2xx status code". The real explanation is in the response
+ * carried on error.context, so it has to be read from there — otherwise every
+ * server-side failure looks identical and nobody can tell a missing secret
+ * from a rejected file.
+ */
+async function functionErrorMessage(
+  error: unknown,
+  fallback: string,
+): Promise<string> {
+  const context = (error as { context?: Response } | null)?.context;
+  if (context && typeof context.text === "function") {
+    try {
+      const body = await context.text();
+      if (body) {
+        try {
+          const parsed = JSON.parse(body) as { error?: string };
+          if (parsed?.error) return parsed.error;
+        } catch {
+          // Not JSON — the raw body is still more useful than the wrapper.
+        }
+        return body.slice(0, 300);
+      }
+    } catch {
+      // Body already consumed or unreadable; fall through.
+    }
+  }
+  return (error as { message?: string } | null)?.message ?? fallback;
+}
+
 export async function requestTranscription(callId: string): Promise<void> {
   const { data, error } = await supabase.functions.invoke("transcribe", {
     body: { callId },
   });
   if (error) {
-    // Surface the function's own message where it gave one.
-    const detail =
-      (data as { error?: string } | null)?.error ??
-      (error as { message?: string }).message ??
-      "Transcription failed.";
-    throw new Error(detail);
+    throw new Error(await functionErrorMessage(error, "Transcription failed."));
   }
   if ((data as { error?: string } | null)?.error) {
     throw new Error((data as { error: string }).error);
