@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
+import { sendInvitation, type InvitationStatus } from "@/lib/admin";
 import { SubNav } from "@/components/AppShell";
 import {
   assignRole,
@@ -174,16 +175,22 @@ function UsersSection({ session }: { session: Session }): JSX.Element {
   return (
     <div>
       <div className="flex justify-between items-start gap-4 flex-wrap mb-4">
-        <p className="text-[13px] text-ink-70 max-w-xl">
-          People who operate CapDev. Representatives whose calls are evaluated
-          are not listed here &mdash; they live under Representatives and need
-          no account.
-          <span className="block mt-1">
-            Adding someone grants access &mdash; it does not email them. Send
-            them the link yourself and they sign in with Google. Only
-            administrators and executives can add or remove people.
-          </span>
-        </p>
+        <div className="text-[13px] text-ink-70 max-w-xl">
+          <p>
+            People who operate CapDev. Representatives whose calls are evaluated
+            are not listed here &mdash; they live under Representatives and need
+            no account.
+          </p>
+          <p className="mt-1">
+            Adding someone creates their record and roles. Use{" "}
+            <span className="font-semibold">Send invitation</span> to email them
+            a link for setting a password &mdash; or they can sign in with
+            Google straight away if they have a Workspace account.
+          </p>
+          <p className="mt-2.5">
+            Only administrators and executives can add or remove people.
+          </p>
+        </div>
         {canManage && (
           <button
             onClick={() => setInviting(true)}
@@ -380,7 +387,10 @@ function UsersSection({ session }: { session: Session }): JSX.Element {
                   </td>
                   <td className="py-2.5 text-right whitespace-nowrap">
                     {canManage && u.id !== session.person.id && (
-                      <span className="flex gap-3 justify-end">
+                      <span className="flex gap-3 justify-end items-baseline">
+                        {/* Only for people who have never signed in: once an
+                            account exists there is nothing to invite. */}
+                        {!u.last_login_at && <InviteButton user={u} />}
                         {u.status === "suspended" || u.status === "offboarded" ? (
                           <button
                             onClick={() => void changeStatus(u, "active")}
@@ -816,4 +826,75 @@ function StatusChip({ status }: { status: AdminUser["status"] }): JSX.Element {
   const label =
     status === "suspended" ? "Deactivated" : status.charAt(0).toUpperCase() + status.slice(1);
   return <span className={`text-[11px] border rounded-full px-2 py-0.5 ${tone}`}>{label}</span>;
+}
+
+
+/**
+ * Sending the Supabase Auth invitation.
+ *
+ * "Invitation sent" appears only when the server confirms Supabase accepted
+ * it. A failure leaves invitation_sent_at null, so a reload shows the action
+ * again rather than a delivery that never happened.
+ */
+function InviteButton({ user }: { user: AdminUser }): JSX.Element {
+  const [status, setStatus] = useState<InvitationStatus | null>(null);
+  const [busy, setBusy] = useState(false);
+
+  // The stored timestamp is the durable answer; local status covers the
+  // moments between clicking and reloading.
+  const sent = status === "invited" || (status === null && user.invitation_sent_at !== null);
+
+  async function send(): Promise<void> {
+    setBusy(true);
+    setStatus(await sendInvitation(user.id));
+    setBusy(false);
+  }
+
+  if (status === "already_has_account") {
+    return <span className="text-[12px] text-ink-45">Already has an account</span>;
+  }
+  if (status === "not_allowed") {
+    return <span className="text-[12px] text-[#AC3A2A]">Not permitted</span>;
+  }
+  if (status === "rate_limited") {
+    return (
+      <span className="text-[12px] text-[#96690A]" title="Supabase limits how often invitations may be sent">
+        Try again shortly
+      </span>
+    );
+  }
+  if (status === "failed" || status === "not_found") {
+    return (
+      <button
+        onClick={() => void send()}
+        className="text-[12.5px] underline underline-offset-2 text-[#AC3A2A]"
+      >
+        Unable to send &mdash; retry
+      </button>
+    );
+  }
+  if (sent) {
+    return (
+      <span
+        className="text-[12px] text-[#1F7A4D]"
+        title={
+          user.invitation_sent_at
+            ? `Sent ${formatDate(user.invitation_sent_at)}`
+            : undefined
+        }
+      >
+        Invitation sent
+      </span>
+    );
+  }
+
+  return (
+    <button
+      onClick={() => void send()}
+      disabled={busy}
+      className="text-[12.5px] underline underline-offset-2 text-accent hover:text-ink disabled:opacity-40"
+    >
+      {busy ? "Sending…" : "Send invitation"}
+    </button>
+  );
 }

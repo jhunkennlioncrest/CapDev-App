@@ -1,5 +1,35 @@
 import { supabase } from "./supabase";
 
+/** What the invitation endpoint may tell the browser. */
+export type InvitationStatus =
+  | "invited"
+  | "already_has_account"
+  | "already_invited"
+  | "rate_limited"
+  | "not_allowed"
+  | "not_found"
+  | "failed";
+
+/**
+ * Sends the Supabase Auth invitation.
+ *
+ * Only a person ID crosses the wire. The address is resolved server-side from
+ * that record, so a caller cannot invite an arbitrary email by pointing at a
+ * legitimate person. The service-role key never leaves the Edge Function.
+ */
+export async function sendInvitation(personId: string): Promise<InvitationStatus> {
+  const { data, error } = await supabase.functions.invoke("invite-user", {
+    body: { personId },
+  });
+
+  // A non-2xx still carries the status in the body; prefer it over the
+  // transport error so the administrator gets a specific message.
+  const status = (data as { status?: InvitationStatus } | null)?.status;
+  if (status) return status;
+  if (error) return "failed";
+  return "failed";
+}
+
 export interface AdminUser {
   id: string;
   display_name: string;
@@ -15,6 +45,8 @@ export interface AdminUser {
   last_calibration: string | null;
   raw_count: number;
   calibration_count: number;
+  /** Null until an invitation email has actually been accepted by Supabase. */
+  invitation_sent_at: string | null;
 }
 
 export interface Role {
