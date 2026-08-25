@@ -386,12 +386,15 @@ function UsersSection({ session }: { session: Session }): JSX.Element {
                     )}
                   </td>
                   <td className="py-2.5 text-right whitespace-nowrap">
-                    {canManage && u.id !== session.person.id && (
+                    {/* Invitation is not a destructive action, so it is
+                        governed by person.manage alone. Deactivate and Remove
+                        keep the self-protection gate below: an administrator
+                        must never be able to lock themselves out. */}
+                    {canManage && (
                       <span className="flex gap-3 justify-end items-baseline">
-                        {/* Only for people who have never signed in: once an
-                            account exists there is nothing to invite. */}
-                        {!u.last_login_at && <InviteButton user={u} />}
-                        {u.status === "suspended" || u.status === "offboarded" ? (
+                        <InviteButton user={u} />
+                        {u.id !== session.person.id &&
+                          (u.status === "suspended" || u.status === "offboarded" ? (
                           <button
                             onClick={() => void changeStatus(u, "active")}
                             className="text-[12.5px] underline underline-offset-2 text-ink-45 hover:text-ink"
@@ -405,13 +408,15 @@ function UsersSection({ session }: { session: Session }): JSX.Element {
                           >
                             Deactivate
                           </button>
+                          ))}
+                        {u.id !== session.person.id && (
+                          <button
+                            onClick={() => void startRemove(u)}
+                            className="text-[12.5px] underline underline-offset-2 text-[#AC3A2A] hover:opacity-75"
+                          >
+                            Remove
+                          </button>
                         )}
-                        <button
-                          onClick={() => void startRemove(u)}
-                          className="text-[12.5px] underline underline-offset-2 text-[#AC3A2A] hover:opacity-75"
-                        >
-                          Remove
-                        </button>
                       </span>
                     )}
                   </td>
@@ -836,13 +841,9 @@ function StatusChip({ status }: { status: AdminUser["status"] }): JSX.Element {
  * it. A failure leaves invitation_sent_at null, so a reload shows the action
  * again rather than a delivery that never happened.
  */
-function InviteButton({ user }: { user: AdminUser }): JSX.Element {
+function InviteButton({ user }: { user: AdminUser }): JSX.Element | null {
   const [status, setStatus] = useState<InvitationStatus | null>(null);
   const [busy, setBusy] = useState(false);
-
-  // The stored timestamp is the durable answer; local status covers the
-  // moments between clicking and reloading.
-  const sent = status === "invited" || (status === null && user.invitation_sent_at !== null);
 
   async function send(): Promise<void> {
     setBusy(true);
@@ -850,6 +851,8 @@ function InviteButton({ user }: { user: AdminUser }): JSX.Element {
     setBusy(false);
   }
 
+  // A response from this session always wins: it is newer than the row the
+  // page was loaded with.
   if (status === "already_has_account") {
     return <span className="text-[12px] text-ink-45">Already has an account</span>;
   }
@@ -858,8 +861,11 @@ function InviteButton({ user }: { user: AdminUser }): JSX.Element {
   }
   if (status === "rate_limited") {
     return (
-      <span className="text-[12px] text-[#96690A]" title="Supabase limits how often invitations may be sent">
-        Try again shortly
+      <span
+        className="text-[12px] text-[#96690A]"
+        title="Supabase limits how often invitations may be sent"
+      >
+        Too many attempts &mdash; try again shortly
       </span>
     );
   }
@@ -868,26 +874,54 @@ function InviteButton({ user }: { user: AdminUser }): JSX.Element {
       <button
         onClick={() => void send()}
         className="text-[12.5px] underline underline-offset-2 text-[#AC3A2A]"
+        title="The invitation was not sent. Check the invite-user function logs."
       >
         Unable to send &mdash; retry
       </button>
     );
   }
-  if (sent) {
+
+  // STATE 3 and 4 — an account exists, so there is nothing to invite.
+  //
+  // Decided on has_auth_account, not last_login_at: someone who accepted an
+  // invitation and set a password but has not signed in yet has an account,
+  // and offering them another invitation would be wrong.
+  if (user.has_auth_account) {
+    // State 4 is the ordinary case and needs no annotation; the Status column
+    // already says "active".
+    if (user.status === "active") return null;
+    // State 3: an account exists but the person record still says invited.
+    return <span className="text-[12px] text-ink-45">Already has an account</span>;
+  }
+
+  const sentAt = status === "invited" ? "just now" : user.invitation_sent_at;
+
+  // STATE 2 — an invitation was genuinely accepted by Supabase. Resend is
+  // explicit rather than leaving the administrator to guess whether the first
+  // one arrived.
+  if (sentAt) {
     return (
-      <span
-        className="text-[12px] text-[#1F7A4D]"
-        title={
-          user.invitation_sent_at
-            ? `Sent ${formatDate(user.invitation_sent_at)}`
-            : undefined
-        }
-      >
-        Invitation sent
+      <span className="flex gap-2 items-baseline">
+        <span
+          className="text-[12px] text-[#1F7A4D]"
+          title={
+            sentAt === "just now" ? undefined : `Sent ${formatDate(sentAt)}`
+          }
+        >
+          Invitation sent
+        </span>
+        <button
+          onClick={() => void send()}
+          disabled={busy}
+          className="text-[12px] underline underline-offset-2 text-ink-45 hover:text-ink disabled:opacity-40"
+        >
+          {busy ? "Sending…" : "Resend"}
+        </button>
       </span>
     );
   }
 
+  // STATE 1 — provisioned, no account, nothing sent.
   return (
     <button
       onClick={() => void send()}

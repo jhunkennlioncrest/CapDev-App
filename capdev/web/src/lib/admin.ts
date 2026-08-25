@@ -47,6 +47,14 @@ export interface AdminUser {
   calibration_count: number;
   /** Null until an invitation email has actually been accepted by Supabase. */
   invitation_sent_at: string | null;
+  /**
+   * Whether this person can sign in at all.
+   *
+   * The authoritative signal, not last_login_at: someone who accepted an
+   * invitation and set a password but has not signed in yet has an account
+   * and no login, and must not be offered another invitation.
+   */
+  has_auth_account: boolean;
 }
 
 export interface Role {
