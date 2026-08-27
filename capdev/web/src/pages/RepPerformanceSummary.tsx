@@ -78,12 +78,6 @@ export function RepPerformanceSummary({
                 : `Show inactive (${hiddenCount})`}
             </button>
           )}
-          <button
-            onClick={() => onOpen()}
-            className="text-[12px] text-ink-45 underline underline-offset-2 hover:text-ink"
-          >
-            View rep performance
-          </button>
         </span>
       </div>
 
@@ -142,11 +136,17 @@ export function RepPerformanceSummary({
         })}
       </ul>
 
-      {rows.length > 5 && (
-        <p className="text-[12px] text-ink-45 mt-1.5">
-          {rows.length - 5} more representative{rows.length - 5 === 1 ? "" : "s"}.
-        </p>
-      )}
+      {/* The only route to the full roster. Passing no representative id opens
+          the roster itself rather than a person — the previous generic link
+          landed on whoever happened to sort first, which read as a selection
+          nobody had made. */}
+      <button
+        onClick={() => onOpen()}
+        className="text-[12px] text-ink-45 underline underline-offset-2
+                   hover:text-ink mt-1.5"
+      >
+        View all {visible.length} representative{visible.length === 1 ? "" : "s"} &rarr;
+      </button>
     </section>
   );
 }

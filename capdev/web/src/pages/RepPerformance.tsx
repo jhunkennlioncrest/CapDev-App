@@ -50,7 +50,10 @@ export function RepPerformance({
     setLoading(true);
     const all = await listRepPerformance(versionId);
     setRows(all);
-    const chosen = repId ?? all[0]?.representative_id ?? null;
+    // Only load a representative that was actually chosen. Falling back to
+    // all[0] made "View all" land on whoever sorted first, presenting a person
+    // nobody selected as though they had been.
+    const chosen = repId ?? null;
     setRepId(chosen);
     if (chosen) {
       const [ev, cr, va] = await Promise.all([
@@ -96,6 +99,10 @@ export function RepPerformance({
             onChange={(e) => setRepId(e.target.value)}
             className="border border-rule rounded px-2.5 py-2 bg-white text-sm min-w-56"
           >
+            {/* Present only until a choice is made, so the control can show
+                "no representative selected" rather than implying the first
+                one was chosen. */}
+            {repId === null && <option value="">Choose a representative&hellip;</option>}
             {rows.map((r) => (
               <option key={r.representative_id} value={r.representative_id}>
                 {r.representative_name}
@@ -131,6 +138,19 @@ export function RepPerformance({
 
       {loading ? (
         <p className="text-ink-45 text-sm">Loading&hellip;</p>
+      ) : repId === null ? (
+        /* Arrived via "View all" without picking anyone. The roster is the
+           dropdown above; this explains what to do rather than showing a
+           person nobody asked for. */
+        <div className="border border-dashed border-rule rounded bg-card px-8 py-12 text-center">
+          <h2 className="font-display text-2xl mb-2">
+            {rows.length} representative{rows.length === 1 ? "" : "s"}
+          </h2>
+          <p className="text-ink-70 max-w-md mx-auto">
+            Choose someone above to see their score, trend and recent
+            evaluations.
+          </p>
+        </div>
       ) : !rep ? (
         <div className="border border-dashed border-rule rounded bg-card px-8 py-12 text-center">
           <h2 className="font-display text-2xl mb-2">Nothing to show yet</h2>
