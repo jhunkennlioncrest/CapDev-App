@@ -322,3 +322,121 @@ export async function momentFromEvidence(params: {
   if (error) throw new Error(error.message);
   return data as string;
 }
+
+
+/* ── QA Trainer stage scoring ─────────────────────────────────────────────
+ *
+ * The five 0-5 stage scores from the Trainer rubric. Separate from the
+ * checklist: the checklist records whether something happened, the stage score
+ * records how well it was executed.
+ *
+ * Calibrated evaluations only. Raw QA never renders these controls, and the
+ * database refuses the write regardless.
+ */
+
+export const TRAINER_STAGES = [
+  { key: "opening",                       label: "Opening" },
+  { key: "problem_discovery",             label: "Problem Discovery" },
+  { key: "collaborative_problem_solving", label: "Collaborative Problem-Solving" },
+  { key: "timeline_transparency",         label: "Timeline Transparency" },
+  { key: "professional_closing",          label: "Professional Closing" },
+] as const;
+
+export type TrainerStage = (typeof TRAINER_STAGES)[number]["key"];
+
+/**
+ * The checklist stage labels differ from the rubric's wording for the same
+ * stages — "Discovery Call" against "Problem Discovery", "Closing" against
+ * "Professional Closing". The database maps them in v_stage_checklist_status;
+ * this mirrors that mapping so a rubric stage header can find its ceiling.
+ */
+export const CHECKLIST_STAGE_TO_TRAINER: Record<string, TrainerStage> = {
+  "Opening": "opening",
+  "Discovery Call": "problem_discovery",
+  "Collaborative Problem-Solving": "collaborative_problem_solving",
+  "Timeline Transparency": "timeline_transparency",
+  "Closing": "professional_closing",
+};
+
+export interface StageCeiling {
+  stage: TrainerStage;
+  items: number;
+  yes_items: number;
+  no_items: number;
+  na_items: number;
+  /** 2 when any checklist item is No, otherwise 5. NA never caps. */
+  max_score: number;
+}
+
+export interface TrainerScore {
+  stages_scored: number;
+  /** Null until all five stages are scored. */
+  trainer_overall_score: number | null;
+  /** The existing checklist percentage, kept alongside so neither is mistaken
+   *  for the other. */
+  checklist_percentage: number | null;
+}
+
+export async function stageCeilings(evaluationId: string): Promise<StageCeiling[]> {
+  const { data, error } = await supabase
+    .from("v_stage_checklist_status")
+    .select("stage, items, yes_items, no_items, na_items, max_score")
+    .eq("evaluation_id", evaluationId);
+  if (error) throw new Error(error.message);
+  return (data ?? []) as StageCeiling[];
+}
+
+export async function stageScores(
+  evaluationId: string,
+): Promise<Record<string, { score: number; notes: string | null }>> {
+  const { data, error } = await supabase
+    .from("evaluation_stage_score")
+    .select("stage, score, notes")
+    .eq("evaluation_id", evaluationId);
+  if (error) throw new Error(error.message);
+  return Object.fromEntries(
+    (data ?? []).map((r) => [
+      r.stage as string,
+      { score: r.score as number, notes: (r.notes as string | null) ?? null },
+    ]),
+  );
+}
+
+export async function trainerScore(evaluationId: string): Promise<TrainerScore | null> {
+  const { data, error } = await supabase
+    .from("v_trainer_score")
+    .select("stages_scored, trainer_overall_score, checklist_percentage")
+    .eq("evaluation_id", evaluationId)
+    .maybeSingle();
+  if (error) throw new Error(error.message);
+  return (data as TrainerScore | null) ?? null;
+}
+
+/**
+ * Upsert on (evaluation_id, stage), the table's primary key, so re-scoring a
+ * stage replaces the previous judgement rather than failing or duplicating.
+ *
+ * Works against submitted evaluations: this table is not the evaluation, so the
+ * immutability guard does not apply. That is deliberate — a Trainer must be
+ * able to score a calibration that was submitted before this layer existed.
+ */
+export async function saveStageScore(params: {
+  evaluationId: string;
+  stage: TrainerStage;
+  score: number;
+  notes?: string | null;
+  scoredBy?: string | null;
+}): Promise<void> {
+  const { error } = await supabase.from("evaluation_stage_score").upsert(
+    {
+      evaluation_id: params.evaluationId,
+      stage: params.stage,
+      score: params.score,
+      notes: params.notes ?? null,
+      scored_by: params.scoredBy ?? null,
+      scored_at: new Date().toISOString(),
+    },
+    { onConflict: "evaluation_id,stage" },
+  );
+  if (error) throw new Error(error.message);
+}

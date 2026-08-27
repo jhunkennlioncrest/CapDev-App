@@ -1,4 +1,12 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
+import {
+  CHECKLIST_STAGE_TO_TRAINER,
+  saveStageScore,
+  stageCeilings,
+  stageScores,
+  type StageCeiling,
+  type TrainerStage,
+} from "@/lib/calibration";
 import { resolveSpeakersInText, type SpeakerMap } from "@/lib/speakers";
 import { TranscriptSelector, excerptForRange } from "@/components/TranscriptSelector";
 import { getTranscript } from "@/lib/calls";
@@ -55,6 +63,7 @@ export function CalibrationPanel({
   onPlayClip,
   onCountsChanged,
   onNeedEvidence,
+  onStageScored,
 }: {
   evaluationId: string;
   callId: string;
@@ -64,6 +73,8 @@ export function CalibrationPanel({
   onCountsChanged?: (decided: number, total: number) => void;
   /** Opens the transcript picker when there is nothing cited yet. */
   onNeedEvidence?: (criterionId: string) => void;
+  /** Fired after a stage score is saved so the overall can refresh. */
+  onStageScored?: () => void;
 }): JSX.Element {
   // One mapping for the whole panel: reviewer evidence and trainer evidence
   // resolve through exactly the same source as the main transcript.
@@ -82,19 +93,49 @@ export function CalibrationPanel({
     void getTranscript(callId).then((t) => setSegments(t?.segments ?? []));
   }, [callId]);
   const [rows, setRows] = useState<CalibrationRow[]>([]);
+  // Trainer stage scoring. Loaded alongside the checklist so the ceiling and
+  // any existing score are known before a header renders.
+  const [ceilings, setCeilings] = useState<Record<string, StageCeiling>>({});
+  const [stageValues, setStageValues] = useState<Record<string, number>>({});
   const [summary, setSummary] = useState<CalibrationSummary | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
+  const setStage = useCallback(
+    async (stage: TrainerStage, score: number): Promise<void> => {
+      // Optimistic: the selector should respond immediately, and a failure is
+      // surfaced rather than silently reverting to a stale value.
+      setStageValues((v) => ({ ...v, [stage]: score }));
+      try {
+        await saveStageScore({
+          evaluationId,
+          stage,
+          score,
+          scoredBy: session.person.id,
+        });
+        onStageScored?.();
+      } catch (e) {
+        setError(e instanceof Error ? e.message : String(e));
+      }
+    },
+    [evaluationId, session.person.id, onStageScored],
+  );
+
   const load = useCallback(async (): Promise<void> => {
     try {
-      const [r, s] = await Promise.all([
+      const [r, s, ceil, scored] = await Promise.all([
         getCalibrationRows(evaluationId),
         getSummary(evaluationId),
+        stageCeilings(evaluationId),
+        stageScores(evaluationId),
       ]);
       setRows(r);
       setSummary(s);
+      setCeilings(Object.fromEntries(ceil.map((c) => [c.stage, c])));
+      setStageValues(
+        Object.fromEntries(Object.entries(scored).map(([k, v]) => [k, v.score])),
+      );
       onCountsChanged?.(r.filter((x) => x.calibrated_at).length, r.length);
       setError(null);
     } catch (e) {
@@ -232,9 +273,20 @@ export function CalibrationPanel({
               return (
                 <div key={row.criterion_id}>
                   {row.stage && row.stage !== prevStage && (
-                    <p className="font-mono text-[10px] tracking-[0.14em] uppercase text-ink-45 mt-4 mb-2">
-                      {row.stage}
-                    </p>
+                    <div className="flex items-baseline justify-between gap-4 mt-4 mb-2">
+                      <p className="font-mono text-[10px] tracking-[0.14em] uppercase text-ink-45">
+                        {row.stage}
+                      </p>
+                      {/* The Trainer stage score sits with its own checklist
+                          items directly beneath, which is how the rubric asks
+                          it to be judged. */}
+                      <StageScorePicker
+                        stage={CHECKLIST_STAGE_TO_TRAINER[row.stage]}
+                        ceiling={ceilings[CHECKLIST_STAGE_TO_TRAINER[row.stage] ?? ""]}
+                        value={stageValues[CHECKLIST_STAGE_TO_TRAINER[row.stage] ?? ""]}
+                        onPick={setStage}
+                      />
+                    </div>
                   )}
                   <CriterionRow
                     row={row}
@@ -1158,3 +1210,83 @@ function TeachThis({
     </div>
   );
 }
+
+
+/**
+ * The 0-5 stage score.
+ *
+ * A single NO on this stage's checklist caps it at 2. The capped buttons are
+ * disabled rather than hidden, and the reason is stated: a Trainer who cannot
+ * award 4 needs to know it is the checklist doing that, not a broken control.
+ *
+ * NA does not cap. That distinction is made in v_stage_checklist_status, which
+ * counts only no_items, so nothing here needs to reason about it.
+ */
+function StageScorePicker({
+  stage,
+  ceiling,
+  value,
+  onPick,
+}: {
+  stage: TrainerStage | undefined;
+  ceiling: StageCeiling | undefined;
+  value: number | undefined;
+  onPick: (stage: TrainerStage, score: number) => Promise<void>;
+}): JSX.Element | null {
+  // A checklist stage with no mapping is not part of the Trainer rubric.
+  if (!stage) return null;
+
+  const max = ceiling?.max_score ?? 5;
+  const capped = max === 2;
+
+  return (
+    <span className="flex items-center gap-2 shrink-0">
+      {capped && (
+        <span
+          className="text-[11px] text-[#96690A]"
+          title="The rubric caps a stage at 2 when any checklist item is No. Items marked N/A do not cap."
+        >
+          Capped at 2 &mdash; one checklist item is No.
+        </span>
+      )}
+      <span className="flex gap-0.5">
+        {[0, 1, 2, 3, 4, 5].map((n) => {
+          const blocked = n > max;
+          const chosen = value === n;
+          return (
+            <button
+              key={n}
+              onClick={() => void onPick(stage, n)}
+              disabled={blocked}
+              title={
+                blocked
+                  ? "Not available while a checklist item for this stage is No"
+                  : SCORE_MEANING[n]
+              }
+              className={[
+                "w-6 h-6 text-[12px] rounded border transition-colors",
+                chosen
+                  ? "bg-ink text-ground border-ink font-medium"
+                  : blocked
+                    ? "border-rule-soft text-ink-45 opacity-35 cursor-not-allowed"
+                    : "border-rule text-ink-70 hover:border-ink hover:text-ink",
+              ].join(" ")}
+            >
+              {n}
+            </button>
+          );
+        })}
+      </span>
+    </span>
+  );
+}
+
+/** The rubric's own words for each point on the scale. */
+const SCORE_MEANING: Record<number, string> = {
+  0: "Not Done - the stage did not happen at all",
+  1: "Poor - most checklist items No, barely executed",
+  2: "Weak - clear gaps, or delivery confused the author",
+  3: "Acceptable - all items Yes, but delivery undercut it",
+  4: "Strong - all items Yes, minor delivery issue",
+  5: "Flawless - all items Yes, delivered naturally and confidently",
+};

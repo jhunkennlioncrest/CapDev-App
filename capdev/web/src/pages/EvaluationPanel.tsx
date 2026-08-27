@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { trainerScore, type TrainerScore } from "@/lib/calibration";
 import { resolveSpeakersInText } from "@/lib/speakers";
 import { useSpeakers } from "@/lib/useSpeakers";
 import { CalibrationPanel } from "@/pages/CalibrationPanel";
@@ -120,6 +121,22 @@ export function EvaluationPanel({
   const total = calibrated ? calibrated.total : allCriteria.length;
   const locked = evaluation?.status === "submitted";
 
+  // The Trainer overall score, derived from the five stage scores.
+  //
+  // Deliberately NOT gated on `locked`: evaluation_stage_score is a separate
+  // table, so a submitted calibration can still be scored. The checklist above
+  // stays locked exactly as before.
+  const [trainer, setTrainer] = useState<TrainerScore | null>(null);
+  const refreshTrainer = useCallback(async (): Promise<void> => {
+    if (!evaluation || mode !== "calibrated") return;
+    try {
+      setTrainer(await trainerScore(evaluation.id));
+    } catch {
+      // A missing score is not an error worth interrupting the panel for.
+    }
+  }, [evaluation, mode]);
+  useEffect(() => { void refreshTrainer(); }, [refreshTrainer]);
+
   const reloadEvidence = useCallback(async (evId: string): Promise<void> => {
     const ids = await getScoreIds(evId);
     setScoreIds(ids);
@@ -218,6 +235,19 @@ export function EvaluationPanel({
                 label="score"
               />
             )}
+            {/* The Trainer score is a different measurement from the checklist
+                percentage beside it — how well the five stages were executed,
+                against what proportion of items happened — so it is labelled
+                out of 5.00 and never replaces the percentage.
+                Hidden until all five stages are scored: v_trainer_score
+                returns null before that, and a partial average would read as a
+                finished judgement. */}
+            {!isRaw && trainer?.trainer_overall_score != null && (
+              <Stat
+                value={`${trainer.trainer_overall_score.toFixed(2)} / 5.00`}
+                label="trainer score"
+              />
+            )}
             <Stat value={`${answered}/${total}`} label={isRaw ? "observed" : "answered"} />
             {!isRaw && (
               <Stat
@@ -258,6 +288,7 @@ export function EvaluationPanel({
           onCountsChanged={(decided, totalCount) =>
             setCalibrated({ decided, total: totalCount })
           }
+          onStageScored={() => void refreshTrainer()}
           onNeedEvidence={(criterionId) => {
             // Nothing cited yet, so send them to the transcript first — the
             // same picker used everywhere else.
