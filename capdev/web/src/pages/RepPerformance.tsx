@@ -36,6 +36,11 @@ export function RepPerformance({
   const [criteria, setCriteria] = useState<CriterionPerformance[]>([]);
   const [variance, setVariance] = useState<VarianceRow[]>([]);
   const [loading, setLoading] = useState(true);
+  // Trend for every representative on the roster, not just the selected one.
+  // Same shape and same source as the dashboard summary.
+  const [rosterTrends, setRosterTrends] =
+    useState<Record<string, "up" | "down" | "flat" | "unknown">>({});
+  const [showInactive, setShowInactive] = useState(false);
 
   useEffect(() => {
     void (async () => {
@@ -64,6 +69,17 @@ export function RepPerformance({
       setEvaluations(ev);
       setCriteria(cr);
       setVariance(va);
+    } else {
+      // Roster view. Trend needs each representative's own evaluations, so it
+      // is fetched only here — and only for those with something to trend.
+      const withEvaluations = all.filter((r) => r.evaluations > 0);
+      const results = await Promise.all(
+        withEvaluations.map(async (r) => [
+          r.representative_id,
+          trendFrom(await repEvaluations(r.representative_id, versionId)).direction,
+        ] as const),
+      );
+      setRosterTrends(Object.fromEntries(results));
     }
     setLoading(false);
   }, [versionId, repId]);
@@ -74,6 +90,13 @@ export function RepPerformance({
 
   const rep = rows.find((r) => r.representative_id === repId) ?? null;
   const trend = useMemo(() => trendFrom(evaluations), [evaluations]);
+
+  // Inactive representatives stay reachable — the dropdown still lists them and
+  // their history is intact — but a former employee is not a current concern,
+  // so they are out of the default roster.
+  const visibleRows = showInactive ? rows : rows.filter((r) => !r.is_inactive);
+  const hiddenCount = rows.filter((r) => r.is_inactive).length;
+  const versionLabel = versions.find((v) => v.id === versionId)?.version_label ?? null;
   const version = versions.find((v) => v.id === versionId);
 
   return (
@@ -139,18 +162,84 @@ export function RepPerformance({
       {loading ? (
         <p className="text-ink-45 text-sm">Loading&hellip;</p>
       ) : repId === null ? (
-        /* Arrived via "View all" without picking anyone. The roster is the
-           dropdown above; this explains what to do rather than showing a
-           person nobody asked for. */
-        <div className="border border-dashed border-rule rounded bg-card px-8 py-12 text-center">
-          <h2 className="font-display text-2xl mb-2">
-            {rows.length} representative{rows.length === 1 ? "" : "s"}
-          </h2>
-          <p className="text-ink-70 max-w-md mx-auto">
-            Choose someone above to see their score, trend and recent
-            evaluations.
-          </p>
-        </div>
+        /* The roster. Arriving from "View all" lands here rather than on a
+           person nobody chose, and rather than on an empty prompt asking for
+           another click. Same rows, same rubric filter and same row styling as
+           the dashboard summary — this is the whole list instead of the first
+           five. */
+        <>
+          <div className="flex justify-between items-baseline mb-2">
+            <p className="text-[12px] text-ink-45">
+              {visibleRows.length} representative{visibleRows.length === 1 ? "" : "s"}
+              {versionLabel && ` under rubric v${versionLabel}`}
+            </p>
+            {hiddenCount > 0 && (
+              <button
+                onClick={() => setShowInactive((v) => !v)}
+                className="text-[12px] text-ink-45 underline underline-offset-2 hover:text-ink"
+              >
+                {showInactive ? "Hide inactive" : `Show inactive (${hiddenCount})`}
+              </button>
+            )}
+          </div>
+
+          <ul className="bg-card border border-rule-soft rounded divide-y divide-rule-soft">
+            {visibleRows.map((r) => {
+              const t = rosterTrends[r.representative_id];
+              return (
+                <li key={r.representative_id}>
+                  <button
+                    onClick={() => setRepId(r.representative_id)}
+                    className="w-full text-left px-4 py-2.5 hover:bg-ground flex items-center gap-4"
+                  >
+                    <span className="flex-1 min-w-0 text-[14px] truncate">
+                      {r.representative_name}
+                      {r.is_inactive && (
+                        <span className="text-[11px] text-ink-45 ml-2">{r.status}</span>
+                      )}
+                    </span>
+                    <span className="font-mono text-[14px] w-14 text-right">
+                      {r.score === null ? "\u2014" : `${r.score}%`}
+                    </span>
+                    <span className="text-[12px] text-ink-45 w-32 text-right">
+                      {r.evaluations === 0 ? (
+                        <span title="On the representative roster, but no completed calibration yet">
+                          &#9675; Not yet evaluated
+                        </span>
+                      ) : (
+                        `${r.evaluations} evaluation${r.evaluations === 1 ? "" : "s"}`
+                      )}
+                    </span>
+                    <span
+                      className="w-5 text-center text-[13px]"
+                      title={
+                        r.evaluations === 0
+                          ? undefined
+                          : t === "unknown"
+                            ? "Not enough evaluations to read a trend"
+                            : undefined
+                      }
+                      style={{
+                        color:
+                          t === "up" ? "#1F7A4D" : t === "down" ? "#AC3A2A" : "#6B6F68",
+                      }}
+                    >
+                      {r.evaluations === 0
+                        ? "\u2014"
+                        : t === "up"
+                          ? "\u2191"
+                          : t === "down"
+                            ? "\u2193"
+                            : t === "flat"
+                              ? "\u2192"
+                              : "\u00b7"}
+                    </span>
+                  </button>
+                </li>
+              );
+            })}
+          </ul>
+        </>
       ) : !rep ? (
         <div className="border border-dashed border-rule rounded bg-card px-8 py-12 text-center">
           <h2 className="font-display text-2xl mb-2">Nothing to show yet</h2>
