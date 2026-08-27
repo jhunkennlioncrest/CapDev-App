@@ -21,6 +21,7 @@ export function RepPerformanceSummary({
 }): JSX.Element | null {
   const [rows, setRows] = useState<RepPerformance[] | null>(null);
   const [trends, setTrends] = useState<Record<string, "up" | "down" | "flat" | "unknown">>({});
+  const [showInactive, setShowInactive] = useState(false);
   const [versionLabel, setVersionLabel] = useState<string>("");
 
   useEffect(() => {
@@ -35,8 +36,9 @@ export function RepPerformanceSummary({
       const all = await listRepPerformance(active.id);
       setRows(all);
 
-      // Trend needs the individual evaluations, so only the few shown here.
-      const top = all.slice(0, 5);
+      // Trend needs the individual evaluations, so only the few shown here —
+      // and only those with evaluations to read a trend from.
+      const top = all.filter((r) => r.evaluations > 0).slice(0, 5);
       const results = await Promise.all(
         top.map(async (r) => [
           r.representative_id,
@@ -49,6 +51,12 @@ export function RepPerformanceSummary({
 
   if (rows === null || rows.length === 0) return null;
 
+  // Inactive representatives stay in the data — the detail view and their
+  // history remain reachable — but a former employee is not a current concern,
+  // so they are out of the default list.
+  const visible = showInactive ? rows : rows.filter((r) => !r.is_inactive);
+  const hiddenCount = rows.length - rows.filter((r) => !r.is_inactive).length;
+
   return (
     <section className="mt-8">
       <div className="flex justify-between items-baseline gap-4 mb-2.5">
@@ -56,16 +64,31 @@ export function RepPerformanceSummary({
           Rep performance
           {versionLabel && <span className="ml-2">rubric v{versionLabel}</span>}
         </h2>
-        <button
-          onClick={() => onOpen()}
-          className="text-[12px] text-ink-45 underline underline-offset-2 hover:text-ink"
-        >
-          View rep performance
-        </button>
+        <span className="flex items-baseline gap-3">
+          {/* Only offered when something is actually hidden, so the control
+              does not imply there are former representatives when there are
+              none. */}
+          {hiddenCount > 0 && (
+            <button
+              onClick={() => setShowInactive((v) => !v)}
+              className="text-[12px] text-ink-45 underline underline-offset-2 hover:text-ink"
+            >
+              {showInactive
+                ? "Hide inactive"
+                : `Show inactive (${hiddenCount})`}
+            </button>
+          )}
+          <button
+            onClick={() => onOpen()}
+            className="text-[12px] text-ink-45 underline underline-offset-2 hover:text-ink"
+          >
+            View rep performance
+          </button>
+        </span>
       </div>
 
       <ul className="bg-card border border-rule-soft rounded divide-y divide-rule-soft">
-        {rows.slice(0, 5).map((r) => {
+        {visible.slice(0, 5).map((r) => {
           const trend = trends[r.representative_id];
           return (
             <li key={r.representative_id}>
@@ -83,7 +106,13 @@ export function RepPerformanceSummary({
                   {r.score === null ? "—" : `${r.score}%`}
                 </span>
                 <span className="text-[12px] text-ink-45 w-24 text-right">
-                  {r.evaluations} evaluation{r.evaluations === 1 ? "" : "s"}
+                  {r.evaluations === 0 ? (
+                    <span title="On the representative roster, but no completed calibration yet">
+                      &#9675; Not yet evaluated
+                    </span>
+                  ) : (
+                    `${r.evaluations} evaluation${r.evaluations === 1 ? "" : "s"}`
+                  )}
                 </span>
                 <span
                   className="w-5 text-center text-[13px]"
@@ -97,7 +126,15 @@ export function RepPerformanceSummary({
                       trend === "up" ? "#1F7A4D" : trend === "down" ? "#AC3A2A" : "#6B6F68",
                   }}
                 >
-                  {trend === "up" ? "↑" : trend === "down" ? "↓" : trend === "flat" ? "→" : "·"}
+                  {r.evaluations === 0
+                    ? "—"
+                    : trend === "up"
+                      ? "↑"
+                      : trend === "down"
+                        ? "↓"
+                        : trend === "flat"
+                          ? "→"
+                          : "·"}
                 </span>
               </button>
             </li>

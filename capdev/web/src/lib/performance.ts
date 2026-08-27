@@ -103,10 +103,31 @@ export async function listRepPerformance(
   rubricVersionId?: string | null,
 ): Promise<RepPerformance[]> {
   let q = supabase.from("v_rep_performance").select("*");
-  if (rubricVersionId) q = q.eq("rubric_version_id", rubricVersionId);
-  const { data, error } = await q.order("score", { ascending: false });
+
+  // Representatives with no completed calibration carry a null
+  // rubric_version_id, and .eq() excludes nulls — so filtering by rubric alone
+  // would drop the whole never-evaluated part of the roster, which is exactly
+  // the group Administration lists and this screen was missing.
+  //
+  // .or() keeps the rubric filter intact for everyone who has been evaluated
+  // and lets the roster rows through alongside them.
+  if (rubricVersionId) {
+    q = q.or(`rubric_version_id.eq.${rubricVersionId},rubric_version_id.is.null`);
+  }
+
+  const { data, error } = await q;
   if (error) throw new Error(error.message);
-  return (data ?? []) as RepPerformance[];
+
+  // Sorted here rather than in the query: "evaluated first by score, then
+  // never-evaluated alphabetically" is two orderings over different columns,
+  // and PostgREST cannot express the second without nulls-last guesswork.
+  return (data ?? []).sort((a, b) => {
+    const aEmpty = a.evaluations === 0;
+    const bEmpty = b.evaluations === 0;
+    if (aEmpty !== bEmpty) return aEmpty ? 1 : -1;
+    if (aEmpty) return a.representative_name.localeCompare(b.representative_name);
+    return (b.score ?? 0) - (a.score ?? 0);
+  }) as RepPerformance[];
 }
 
 export async function repEvaluations(

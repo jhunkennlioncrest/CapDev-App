@@ -139,6 +139,24 @@ export function RepPerformance({
             representative. Finish a calibration first.
           </p>
         </div>
+      ) : rep.evaluations === 0 ? (
+        /* On the roster, but nothing calibrated yet. Distinct from the state
+           above, which means nobody at all has been evaluated — saying that
+           here would be untrue while other representatives have scores. */
+        <div className="border border-dashed border-rule rounded bg-card px-8 py-12 text-center">
+          <h2 className="font-display text-2xl mb-2">No evaluation data yet</h2>
+          <p className="text-ink-70 max-w-md mx-auto">
+            {rep.representative_name} is on the representative roster, but no
+            calibration has been completed for them under v
+            {version?.version_label}. Their score and trend will appear here
+            once one is published.
+          </p>
+          {rep.is_inactive && (
+            <p className="text-[12px] text-ink-45 mt-3">
+              This representative is {rep.status}.
+            </p>
+          )}
+        </div>
       ) : (
         <>
           <div className="flex justify-between items-baseline gap-4 flex-wrap mb-1">
