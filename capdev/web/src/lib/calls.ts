@@ -108,7 +108,6 @@ export async function uploadCall(
       agent_name: draft.agentName.trim(),
       author_name: draft.authorName.trim(),
       customer_ref: draft.customerRef.trim(),
-      notes: draft.notes.trim(),
       occurred_at: draft.occurredAt ? new Date(draft.occurredAt).toISOString() : null,
       duration_ms: draft.durationMs,
       created_by: personId,

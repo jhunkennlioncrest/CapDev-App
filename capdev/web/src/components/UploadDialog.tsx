@@ -30,7 +30,6 @@ export function UploadDialog({ session, onClose, onUploaded }: Props): JSX.Eleme
   const canCalibrate = session.permissions.includes("calibration.perform");
   const [evaluateMyself, setEvaluateMyself] = useState(false);
   const [customerRef, setCustomerRef] = useState("");
-  const [description, setDescription] = useState("");
   const [occurredAt, setOccurredAt] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [stage, setStage] = useState<UploadStage>({ stage: "idle" });
@@ -69,7 +68,6 @@ export function UploadDialog({ session, onClose, onUploaded }: Props): JSX.Eleme
           agentName,
           authorName,
           customerRef,
-          notes: description,
           occurredAt,
           durationMs,
         },
@@ -155,7 +153,10 @@ export function UploadDialog({ session, onClose, onUploaded }: Props): JSX.Eleme
           />
 
           <div className="mt-5 space-y-4">
-            {/* Ordered to match the title they produce: Rep, Author, Date. */}
+            {/* Every field here is optional. A recording can be uploaded on its
+                own: the title falls back to placeholders rather than blocking
+                ingestion, because Raw QA often uploads a call before hearing it
+                and should not have to research metadata first. */}
             <Field label="Representative">
               <RepresentativePicker
                 value={repId}
@@ -172,8 +173,13 @@ export function UploadDialog({ session, onClose, onUploaded }: Props): JSX.Eleme
                      placeholder="Tara Aronson" className={inputClass} />
             </Field>
 
+            <Field label="Author or account reference" hint="— optional">
+              <input value={customerRef} onChange={(e) => setCustomerRef(e.target.value)}
+                     placeholder="AUT-2291" className={inputClass} />
+            </Field>
+
             <Field label="When did the call happen?"
-                   hint="\u2014 optional, defaults to today">
+                   hint="— optional, defaults to today">
               <input type="datetime-local" value={occurredAt}
                      onChange={(e) => setOccurredAt(e.target.value)} className={inputClass} />
             </Field>
@@ -187,19 +193,6 @@ export function UploadDialog({ session, onClose, onUploaded }: Props): JSX.Eleme
                 Generated. The recording keeps its own filename.
               </span>
             </div>
-
-            <Field label="Author or account reference" hint="\u2014 optional">
-              <input value={customerRef} onChange={(e) => setCustomerRef(e.target.value)}
-                     placeholder="AUT-2291" className={inputClass} />
-            </Field>
-
-            {/* Optional on purpose: Raw QA uploads calls they have not heard
-                yet, and cannot describe what they have not listened to. */}
-            <Field label="Call description"
-                   hint="\u2014 optional, searchable later">
-              <input value={description} onChange={(e) => setDescription(e.target.value)}
-                     placeholder="Refund threat after proof approval" className={inputClass} />
-            </Field>
 
             {canCalibrate && (
               <label className="flex items-start gap-2.5 border border-rule rounded bg-ground px-3 py-2.5 cursor-pointer">

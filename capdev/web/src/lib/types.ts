@@ -55,7 +55,6 @@ export interface UploadDraft {
   agentName: string;
   authorName: string;
   customerRef: string;
-  notes: string;
   occurredAt: string;
   durationMs: number | null;
 }
