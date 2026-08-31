@@ -36,13 +36,26 @@ export interface CallListItem {
   transcription_status: "queued" | "running" | "succeeded" | "failed" | "cancelled" | null;
   transcription_error: string | null;
   workflow_status: import("./workflow").WorkflowStatus;
+  /** Human-readable author name. Feeds the generated title (0062). */
+  author_name: string;
+  /** Optional description. Searchable; never an identifier (0062). */
+  notes: string;
 }
 
+/**
+ * What the upload form collects.
+ *
+ * There is no `title`: the displayed title is generated from the
+ * representative, the author and the date. Nothing typed here becomes the
+ * title, and the filename never does — that is kept, untouched, as
+ * recording.original_filename.
+ */
 export interface UploadDraft {
   file: File;
-  title: string;
   agentName: string;
+  authorName: string;
   customerRef: string;
+  notes: string;
   occurredAt: string;
   durationMs: number | null;
 }

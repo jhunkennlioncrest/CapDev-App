@@ -1,6 +1,7 @@
 import { useRef, useState } from "react";
 import {
   ACCEPTED_EXTENSIONS,
+  buildCallTitle,
   uploadCall,
   validateFile,
   type UploadStage,
@@ -20,8 +21,8 @@ interface Props {
 export function UploadDialog({ session, onClose, onUploaded }: Props): JSX.Element {
   const [file, setFile] = useState<File | null>(null);
   const [durationMs, setDurationMs] = useState<number | null>(null);
-  const [title, setTitle] = useState("");
   const [agentName, setAgentName] = useState("");
+  const [authorName, setAuthorName] = useState("");
   const [repId, setRepId] = useState("");
   // Skipping Raw QA is a calibration decision, so it is offered on the
   // capability rather than on a role name. Uploading is a separate capability
@@ -29,6 +30,7 @@ export function UploadDialog({ session, onClose, onUploaded }: Props): JSX.Eleme
   const canCalibrate = session.permissions.includes("calibration.perform");
   const [evaluateMyself, setEvaluateMyself] = useState(false);
   const [customerRef, setCustomerRef] = useState("");
+  const [description, setDescription] = useState("");
   const [occurredAt, setOccurredAt] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [stage, setStage] = useState<UploadStage>({ stage: "idle" });
@@ -36,6 +38,10 @@ export function UploadDialog({ session, onClose, onUploaded }: Props): JSX.Eleme
   const inputRef = useRef<HTMLInputElement>(null);
 
   const busy = stage.stage !== "idle" && stage.stage !== "error";
+
+  // Shown live, so the uploader sees the title their entries produce rather
+  // than discovering it afterwards in the library.
+  const previewTitle = buildCallTitle({ agentName, authorName, occurredAt });
 
   async function accept(chosen: File): Promise<void> {
     const problem = validateFile(chosen);
@@ -45,7 +51,8 @@ export function UploadDialog({ session, onClose, onUploaded }: Props): JSX.Eleme
     }
     setError(null);
     setFile(chosen);
-    if (!title) setTitle(chosen.name.replace(/\.[^.]+$/, ""));
+    // The filename is deliberately NOT copied into anything shown to a reader.
+    // It is preserved verbatim as recording.original_filename by uploadCall.
     setDurationMs(await readAudioDuration(chosen));
   }
 
@@ -57,7 +64,15 @@ export function UploadDialog({ session, onClose, onUploaded }: Props): JSX.Eleme
     setError(null);
     try {
       const newCallId = await uploadCall(
-        { file, title, agentName, customerRef, occurredAt, durationMs },
+        {
+          file,
+          agentName,
+          authorName,
+          customerRef,
+          notes: description,
+          occurredAt,
+          durationMs,
+        },
         session.person.org_id,
         session.person.id,
         setStage,
@@ -140,12 +155,7 @@ export function UploadDialog({ session, onClose, onUploaded }: Props): JSX.Eleme
           />
 
           <div className="mt-5 space-y-4">
-            <Field label="What was this call about?"
-                   hint="— how a colleague would search for it">
-              <input value={title} onChange={(e) => setTitle(e.target.value)}
-                     placeholder="Refund threat after proof approval" className={inputClass} />
-            </Field>
-
+            {/* Ordered to match the title they produce: Rep, Author, Date. */}
             <Field label="Representative">
               <RepresentativePicker
                 value={repId}
@@ -157,9 +167,38 @@ export function UploadDialog({ session, onClose, onUploaded }: Props): JSX.Eleme
               />
             </Field>
 
-            <Field label="Author or account reference">
+            <Field label="Author name">
+              <input value={authorName} onChange={(e) => setAuthorName(e.target.value)}
+                     placeholder="Tara Aronson" className={inputClass} />
+            </Field>
+
+            <Field label="When did the call happen?"
+                   hint="\u2014 optional, defaults to today">
+              <input type="datetime-local" value={occurredAt}
+                     onChange={(e) => setOccurredAt(e.target.value)} className={inputClass} />
+            </Field>
+
+            <div className="border border-accent rounded bg-[#F2F2F9] px-3 py-2.5">
+              <span className="block font-mono text-[10px] tracking-[0.13em] uppercase text-accent">
+                Call title
+              </span>
+              <span className="block font-display text-[15px] mt-1">{previewTitle}</span>
+              <span className="block text-[11.5px] text-ink-45 mt-1">
+                Generated. The recording keeps its own filename.
+              </span>
+            </div>
+
+            <Field label="Author or account reference" hint="\u2014 optional">
               <input value={customerRef} onChange={(e) => setCustomerRef(e.target.value)}
                      placeholder="AUT-2291" className={inputClass} />
+            </Field>
+
+            {/* Optional on purpose: Raw QA uploads calls they have not heard
+                yet, and cannot describe what they have not listened to. */}
+            <Field label="Call description"
+                   hint="\u2014 optional, searchable later">
+              <input value={description} onChange={(e) => setDescription(e.target.value)}
+                     placeholder="Refund threat after proof approval" className={inputClass} />
             </Field>
 
             {canCalibrate && (
@@ -182,11 +221,6 @@ export function UploadDialog({ session, onClose, onUploaded }: Props): JSX.Eleme
                 </span>
               </label>
             )}
-
-            <Field label="When did the call happen?" hint="— optional">
-              <input type="datetime-local" value={occurredAt}
-                     onChange={(e) => setOccurredAt(e.target.value)} className={inputClass} />
-            </Field>
           </div>
         </div>
 

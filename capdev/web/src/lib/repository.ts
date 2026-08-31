@@ -34,6 +34,8 @@ export interface RepositoryRow {
   moment_count: number;
   calibration_changes: number;
   storage_path: string | null;
+  /** Optional call description (0062). Searched alongside call_title. */
+  call_notes: string | null;
 }
 
 export interface RecordScore {
