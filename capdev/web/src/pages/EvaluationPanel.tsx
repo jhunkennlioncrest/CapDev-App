@@ -1,4 +1,13 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { StageScorePicker } from "@/components/StageScorePicker";
+import {
+  CHECKLIST_STAGE_TO_TRAINER,
+  saveStageScore,
+  stageCeilings,
+  stageScores,
+  type StageCeiling,
+  type TrainerStage,
+} from "@/lib/calibration";
 import { trainerScore, type TrainerScore } from "@/lib/calibration";
 import { resolveSpeakersInText } from "@/lib/speakers";
 import { useSpeakers } from "@/lib/useSpeakers";
@@ -127,14 +136,44 @@ export function EvaluationPanel({
   // table, so a submitted calibration can still be scored. The checklist above
   // stays locked exactly as before.
   const [trainer, setTrainer] = useState<TrainerScore | null>(null);
+  // Stage scoring for the DIRECT trainer path. CalibrationPanel covers calls
+  // derived from a Raw QA observation; this covers the rest. Both are
+  // kind='calibrated' and the rubric makes no distinction between them, so
+  // both must be scoreable.
+  const [ceilings, setCeilings] = useState<Record<string, StageCeiling>>({});
+  const [stageValues, setStageValues] = useState<Record<string, number>>({});
   const refreshTrainer = useCallback(async (): Promise<void> => {
     if (!evaluation || mode !== "calibrated") return;
     try {
-      setTrainer(await trainerScore(evaluation.id));
+      const [t, ceil, scored] = await Promise.all([
+        trainerScore(evaluation.id),
+        stageCeilings(evaluation.id),
+        stageScores(evaluation.id),
+      ]);
+      setTrainer(t);
+      setCeilings(Object.fromEntries(ceil.map((c) => [c.stage, c])));
+      setStageValues(
+        Object.fromEntries(Object.entries(scored).map(([k, v]) => [k, v.score])),
+      );
     } catch {
       // A missing score is not an error worth interrupting the panel for.
     }
   }, [evaluation, mode]);
+
+  const setStage = useCallback(
+    async (stage: TrainerStage, score: number): Promise<void> => {
+      if (!evaluation) return;
+      setStageValues((v) => ({ ...v, [stage]: score }));
+      await saveStageScore({
+        evaluationId: evaluation.id,
+        stage,
+        score,
+        scoredBy: session.person.id,
+      });
+      void refreshTrainer();
+    },
+    [evaluation, session.person.id, refreshTrainer],
+  );
   useEffect(() => { void refreshTrainer(); }, [refreshTrainer]);
 
   const reloadEvidence = useCallback(async (evId: string): Promise<void> => {
@@ -332,9 +371,23 @@ export function EvaluationPanel({
                   return (
                     <div key={criterion.id}>
                       {showStage && (
-                        <p className="font-mono text-[10px] tracking-[0.14em] uppercase text-ink-45 mt-5 mb-2">
-                          {criterion.stage}
-                        </p>
+                        <div className="flex items-baseline justify-between gap-4 mt-5 mb-2">
+                          <p className="font-mono text-[10px] tracking-[0.14em] uppercase text-ink-45">
+                            {criterion.stage}
+                          </p>
+                          {/* Trainer stage score. Calibrated evaluations only —
+                              Raw QA reviewers record observations, not stage
+                              judgements, and the database refuses the write
+                              regardless. */}
+                          {!isRaw && (
+                            <StageScorePicker
+                              stage={CHECKLIST_STAGE_TO_TRAINER[criterion.stage]}
+                              ceiling={ceilings[CHECKLIST_STAGE_TO_TRAINER[criterion.stage] ?? ""]}
+                              value={stageValues[CHECKLIST_STAGE_TO_TRAINER[criterion.stage] ?? ""]}
+                              onPick={setStage}
+                            />
+                          )}
+                        </div>
                       )}
                       <CriterionRow
                         criterion={criterion}
