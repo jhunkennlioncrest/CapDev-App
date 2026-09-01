@@ -38,6 +38,9 @@ export interface CallListItem {
   workflow_status: import("./workflow").WorkflowStatus;
   /** Human-readable author name. Feeds the generated title (0062). */
   author_name: string;
+  /** Recording-platform identifier, e.g. a Zoom meeting ID (0063). Kept
+   *  separate from customer_ref, and never part of the title. */
+  meeting_id: string;
   /** Optional description. Searchable; never an identifier (0062). */
   notes: string;
 }
@@ -54,7 +57,7 @@ export interface UploadDraft {
   file: File;
   agentName: string;
   authorName: string;
-  customerRef: string;
+  meetingId: string;
   occurredAt: string;
   durationMs: number | null;
 }

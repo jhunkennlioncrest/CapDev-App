@@ -107,7 +107,10 @@ export async function uploadCall(
       title: buildCallTitle(draft),
       agent_name: draft.agentName.trim(),
       author_name: draft.authorName.trim(),
-      customer_ref: draft.customerRef.trim(),
+      // customer_ref is deliberately NOT written any more. The column and its
+      // historical values stay exactly as they are; uploads now capture the
+      // recording platform's own identifier instead, which is a different fact.
+      meeting_id: draft.meetingId.trim(),
       occurred_at: draft.occurredAt ? new Date(draft.occurredAt).toISOString() : null,
       duration_ms: draft.durationMs,
       created_by: personId,

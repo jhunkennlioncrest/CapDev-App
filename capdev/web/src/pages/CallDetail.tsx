@@ -305,7 +305,16 @@ export function CallDetail({ callId, session, onBack }: Props): JSX.Element {
           )}
         </div>
         <p className="text-[12px] text-ink-45 mt-1">
-          {call.agent_name || "Rep not set"} &middot; {call.customer_ref || "No reference"} &middot;{" "}
+          {call.agent_name || "Rep not set"} &middot;{" "}
+          {/* Historical customer_ref values are shown as what they are. A
+              meeting ID and an account reference are different facts, so the
+              old ones are never relabelled as the new. */}
+          {call.meeting_id
+            ? `Meeting ID: ${call.meeting_id}`
+            : call.customer_ref
+              ? `Reference: ${call.customer_ref}`
+              : "No meeting ID"}{" "}
+          &middot;{" "}
           {formatDate(call.occurred_at ?? call.created_at)} &middot;{" "}
           <span className="font-mono">{formatDuration(call.duration_ms)}</span>
         </p>

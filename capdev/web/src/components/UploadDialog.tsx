@@ -29,7 +29,7 @@ export function UploadDialog({ session, onClose, onUploaded }: Props): JSX.Eleme
   // again: a trainer may upload a call and still want an independent review.
   const canCalibrate = session.permissions.includes("calibration.perform");
   const [evaluateMyself, setEvaluateMyself] = useState(false);
-  const [customerRef, setCustomerRef] = useState("");
+  const [meetingId, setMeetingId] = useState("");
   const [occurredAt, setOccurredAt] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [stage, setStage] = useState<UploadStage>({ stage: "idle" });
@@ -67,7 +67,7 @@ export function UploadDialog({ session, onClose, onUploaded }: Props): JSX.Eleme
           file,
           agentName,
           authorName,
-          customerRef,
+          meetingId,
           occurredAt,
           durationMs,
         },
@@ -173,9 +173,14 @@ export function UploadDialog({ session, onClose, onUploaded }: Props): JSX.Eleme
                      placeholder="Tara Aronson" className={inputClass} />
             </Field>
 
-            <Field label="Author or account reference" hint="— optional">
-              <input value={customerRef} onChange={(e) => setCustomerRef(e.target.value)}
-                     placeholder="AUT-2291" className={inputClass} />
+            {/* Traceability back to the meeting, not a description of it.
+                Never reaches the title. */}
+            <Field label="Meeting ID" hint="— optional">
+              <input value={meetingId} onChange={(e) => setMeetingId(e.target.value)}
+                     placeholder="85639210421" className={inputClass} />
+              <span className="block text-[11.5px] text-ink-45 mt-1">
+                The meeting ID from the recording platform, if available.
+              </span>
             </Field>
 
             <Field label="When did the call happen?"
