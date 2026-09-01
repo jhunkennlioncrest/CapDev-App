@@ -41,6 +41,9 @@ export interface CallListItem {
   /** Recording-platform identifier, e.g. a Zoom meeting ID (0063). Kept
    *  separate from customer_ref, and never part of the title. */
   meeting_id: string;
+  /** Who uploaded this call (0065). A UI affordance only — it decides whether
+   *  to offer Archive. The server enforces ownership independently. */
+  created_by: string | null;
   /** Optional description. Searchable; never an identifier (0062). */
   notes: string;
 }

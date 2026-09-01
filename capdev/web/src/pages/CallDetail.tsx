@@ -2,6 +2,8 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { SpeakerManager } from "@/pages/SpeakerManager";
 import { displaySpeaker, type SpeakerMap } from "@/lib/speakers";
 import {
+  ARCHIVABLE_STATUSES,
+  archiveCall,
   getCall,
   getTranscript,
   latestJob,
@@ -47,6 +49,8 @@ export function CallDetail({ callId, session, onBack }: Props): JSX.Element {
   const [forceCalibrate, setForceCalibrate] = useState(false);
   const clipEndRef = useRef<number | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [confirmArchive, setConfirmArchive] = useState(false);
+  const [archiving, setArchiving] = useState(false);
   const [loading, setLoading] = useState(true);
   const audioRef = useRef<HTMLAudioElement>(null);
   const playerRef = useRef<HTMLDivElement>(null);
@@ -56,6 +60,37 @@ export function CallDetail({ callId, session, onBack }: Props): JSX.Element {
   const [speakerMap, setSpeakerMap] = useState<SpeakerMap>({});
 
   const canUpload = session.permissions.includes("call.upload");
+
+  /**
+   * Offer Archive only on your own upload, and only before a trainer has it.
+   *
+   * Deliberately absent rather than disabled when either test fails: a greyed
+   * button on someone else's call invites a request for an exception, and a
+   * submitted call is part of the retained quality record.
+   *
+   * Presentation only. archive_own_unsubmitted_call() re-checks organisation,
+   * owner and workflow state server-side and refuses regardless of this.
+   */
+  const canArchive =
+    call !== null &&
+    call.created_by !== null &&
+    call.created_by === session.person.id &&
+    (ARCHIVABLE_STATUSES as readonly string[]).includes(call.workflow_status);
+
+  async function doArchive(): Promise<void> {
+    setArchiving(true);
+    setError(null);
+    try {
+      await archiveCall(callId);
+      // It no longer appears in any list, so there is nothing to come back to.
+      onBack();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+      setConfirmArchive(false);
+    } finally {
+      setArchiving(false);
+    }
+  }
   const workspace = workspaceFor(session.permissions);
 
   const load = useCallback(async (): Promise<void> => {
@@ -293,6 +328,36 @@ export function CallDetail({ callId, session, onBack }: Props): JSX.Element {
                     Calibrate directly
                   </button>
                 )}
+              {canArchive &&
+                (confirmArchive ? (
+                  <span className="flex items-center gap-2 flex-wrap">
+                    <span className="text-[12.5px] text-ink-70">
+                      Archive this call? The recording is kept.
+                    </span>
+                    <button
+                      onClick={() => setConfirmArchive(false)}
+                      disabled={archiving}
+                      className="border border-rule rounded px-3 py-2 text-sm hover:bg-ground-2 disabled:opacity-40"
+                    >
+                      Cancel
+                    </button>
+                    <button
+                      onClick={() => void doArchive()}
+                      disabled={archiving}
+                      className="border border-[#AC3A2A] text-[#AC3A2A] rounded px-3 py-2 text-sm font-medium hover:bg-[#AC3A2A] hover:text-ground disabled:opacity-40"
+                    >
+                      {archiving ? "Archiving…" : "Yes, archive"}
+                    </button>
+                  </span>
+                ) : (
+                  <button
+                    onClick={() => setConfirmArchive(true)}
+                    title="Remove this call from the lists. The recording and its filename are kept."
+                    className="border border-rule rounded px-4 py-2 text-sm text-ink-70 hover:bg-ground-2"
+                  >
+                    Archive
+                  </button>
+                ))}
               <button
                 onClick={() => setEvaluating(true)}
                 disabled={!transcript}

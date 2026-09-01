@@ -167,6 +167,39 @@ export async function uploadCall(
   }
 }
 
+/**
+ * The call states a Raw QA reviewer may still archive their own upload from.
+ *
+ * Mirrors the guard in archive_own_unsubmitted_call(). Duplicated here only to
+ * decide whether to render the control — the database is the authority, and
+ * refuses regardless of what this array says.
+ */
+export const ARCHIVABLE_STATUSES = [
+  "draft",
+  "ready_for_raw_qa",
+  "raw_qa_in_progress",
+] as const;
+
+/**
+ * Archives a call the signed-in person uploaded, before it reaches a trainer.
+ *
+ * Not a delete. The recording, its storage object, any transcript and any
+ * draft observation all survive; the call simply stops appearing, because
+ * every view filters archived_at.
+ *
+ * Ownership and workflow state are enforced inside the function, which runs
+ * security definer and therefore checks the organisation by hand as well —
+ * RLS is off in there. The error text comes back from the database, so the
+ * reason a refusal happened is the database's own words rather than a guess
+ * made here.
+ */
+export async function archiveCall(callId: string): Promise<void> {
+  const { error } = await supabase.rpc("archive_own_unsubmitted_call", {
+    p_call_id: callId,
+  });
+  if (error) throw new Error(error.message);
+}
+
 export async function listCalls(): Promise<CallListItem[]> {
   const { data, error } = await supabase
     .from("v_call_list")
