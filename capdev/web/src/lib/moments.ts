@@ -31,6 +31,8 @@ export interface Moment {
   created_at: string;
   call_title?: string;
   agent_name?: string;
+  /** Optional call description (0062). Searched alongside call_title. */
+  call_notes?: string;
 }
 
 export interface Evidence {

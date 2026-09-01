@@ -55,7 +55,8 @@ export function QualityRepository({ onOpenRecord, onBack, embedded = false }: Pr
         (r.agent_name ?? "").toLowerCase().includes(q) ||
         (r.reviewer_name ?? "").toLowerCase().includes(q) ||
         (r.trainer_name ?? "").toLowerCase().includes(q) ||
-        r.summary_note.toLowerCase().includes(q)
+        r.summary_note.toLowerCase().includes(q) ||
+        (r.call_notes ?? "").toLowerCase().includes(q)
       );
     });
 

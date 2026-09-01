@@ -525,6 +525,9 @@ export interface SourceOption {
   used_by: string | null;
   /** A correction is in flight. Worth knowing, never a reason to withhold it. */
   under_revision: boolean;
+  /** Optional call description (0062). The title is now structured, so this
+   *  is what reads as a description in generated prose. */
+  call_notes: string | null;
 }
 
 export interface CaseStudyEvidence {
@@ -656,14 +659,32 @@ export function draftNarrative(
   const first = sources[0];
   const multi = sources.length > 1;
 
+  // Call titles are structured as "Rep \u00B7 Author \u00B7 Date" (0062). That reads
+  // acceptably as a label in a list, and badly inside a sentence — "James Lewis
+  // was handling James Lewis \u00B7 Tara Aronson \u00B7 26 Aug 2026" repeats the
+  // representative and only parses if the title describes the call. So prose
+  // uses the description where there is one, and drops the clause where there
+  // is not, rather than substituting an identifier.
+  const describe = (s: SourceOption): string => (s.call_notes ?? "").trim();
+
+  const reviewedBy = (s: SourceOption): string =>
+    `The call was reviewed by ${s.reviewer_name ?? "a reviewer"} and calibrated by ` +
+    `${s.trainer_name ?? "a trainer"}.`;
+
   const scenario = multi
-    ? `This looks at ${sources.length} calls where a similar pattern appeared: ` +
-      sources.map((s) => `${s.call_title} (${s.agent_name ?? "rep not recorded"})`).join(", ") +
+    ? // A list tolerates identifiers, so a structured title is still a usable
+      // label here. The description is preferred when one exists.
+      `This looks at ${sources.length} calls where a similar pattern appeared: ` +
+      sources
+        .map((s) => `${describe(s) || s.call_title} (${s.agent_name ?? "rep not recorded"})`)
+        .join(", ") +
       "."
     : first
-      ? `${first.agent_name ?? "The representative"} was handling ${first.call_title}. ` +
-        `The call was reviewed by ${first.reviewer_name ?? "a reviewer"} and calibrated by ` +
-        `${first.trainer_name ?? "a trainer"}.`
+      ? describe(first)
+        ? `${first.agent_name ?? "The representative"} was handling ${describe(first)}. ` +
+          reviewedBy(first)
+        : `${first.agent_name ?? "The representative"} handled this call. ` +
+          reviewedBy(first)
       : "";
 
   const lines: string[] = [];
@@ -683,10 +704,15 @@ export function draftNarrative(
     );
   }
 
+  // Same rule: a description reads as a case study title, a structured call
+  // title does not. With no description, a fixed phrase beats interpolating
+  // "Rep \u00B7 Author \u00B7 Date — what it teaches".
   const title = multi
     ? ""
     : first
-      ? `${first.call_title} — what it teaches`
+      ? describe(first)
+        ? `${describe(first)} — what it teaches`
+        : "What this call teaches"
       : "";
 
   return { scenario, whatHappened: lines.join("\n"), title };

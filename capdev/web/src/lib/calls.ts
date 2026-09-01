@@ -1,4 +1,5 @@
 import { supabase } from "./supabase";
+import { formatDate } from "./format";
 import type { CallListItem, UploadDraft } from "./types";
 
 export type UploadStage =
@@ -47,6 +48,38 @@ export function validateFile(file: File): string | null {
   return null;
 }
 
+export const TITLE_SEPARATOR = " \u00B7 ";
+export const REP_NOT_SET = "Rep not set";
+export const AUTHOR_NOT_SET = "Author not set";
+
+/**
+ * The displayed call title: Representative \u00B7 Author \u00B7 Date.
+ *
+ * Always three segments and two separators. A missing name becomes a
+ * placeholder rather than a dropped segment, because the title is positional:
+ * "Tara Aronson \u00B7 26 Aug 2026" gives a reader no way to tell whether that
+ * name is the representative or the author.
+ *
+ * The date always resolves, so the title is never empty and never ends in a
+ * dangling separator. occurred_at when the uploader gave one, otherwise the
+ * upload date — created_at is a database default and does not exist on the
+ * client before the insert.
+ *
+ * This is a label, never an identifier. Recordings are retrieved by
+ * storage_path and recording.id, and nothing here touches either.
+ */
+export function buildCallTitle(draft: {
+  agentName: string;
+  authorName: string;
+  occurredAt: string;
+}): string {
+  const rep = draft.agentName.trim() || REP_NOT_SET;
+  const author = draft.authorName.trim() || AUTHOR_NOT_SET;
+  const when = draft.occurredAt ? new Date(draft.occurredAt) : new Date();
+  const safe = Number.isNaN(when.getTime()) ? new Date() : when;
+  return [rep, author, formatDate(safe.toISOString())].join(TITLE_SEPARATOR);
+}
+
 /**
  * Uploads a recording and records the call.
  *
@@ -69,9 +102,15 @@ export async function uploadCall(
     .insert({
       org_id: orgId,
       provider: "manual",
-      title: draft.title.trim() || draft.file.name,
+      // Generated, never typed and never the filename. The filename is kept
+      // verbatim on the recording row below.
+      title: buildCallTitle(draft),
       agent_name: draft.agentName.trim(),
-      customer_ref: draft.customerRef.trim(),
+      author_name: draft.authorName.trim(),
+      // customer_ref is deliberately NOT written any more. The column and its
+      // historical values stay exactly as they are; uploads now capture the
+      // recording platform's own identifier instead, which is a different fact.
+      meeting_id: draft.meetingId.trim(),
       occurred_at: draft.occurredAt ? new Date(draft.occurredAt).toISOString() : null,
       duration_ms: draft.durationMs,
       created_by: personId,

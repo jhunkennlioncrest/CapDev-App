@@ -70,7 +70,8 @@ export function MomentLibrary({ onOpenCall, onBack, embedded = false }: Props): 
         m.coaching_note.toLowerCase().includes(q) ||
         m.excerpt.toLowerCase().includes(q) ||
         (m.call_title ?? "").toLowerCase().includes(q) ||
-        (m.agent_name ?? "").toLowerCase().includes(q)
+        (m.agent_name ?? "").toLowerCase().includes(q) ||
+        (m.call_notes ?? "").toLowerCase().includes(q)
       );
     });
   }, [moments, query, typeFilter, criterionFilter]);
