@@ -12,6 +12,7 @@ import {
   type VersionRow,
 } from "@/lib/repository";
 import { evidenceForEvaluation, listMomentsForCall, type Evidence, type Moment } from "@/lib/moments";
+import { trainerReward, trainerRewardLabel, type TrainerReward } from "@/lib/calibration";
 import { getScoreIds } from "@/lib/moments";
 import { getTranscript, signedUrlFor, type StoredTranscript } from "@/lib/calls";
 import { formatDate, formatDuration } from "@/lib/format";
@@ -50,6 +51,28 @@ export function QualityRecord({ callId, session, onBack, onOpenCall }: Props): J
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [correcting, setCorrecting] = useState(false);
+  // Authoritative reward, keyed off the record's evaluation. Loaded
+  // separately so the existing record fetch is untouched.
+  const [reward, setReward] = useState<TrainerReward | null>(null);
+
+  useEffect(() => {
+    const id = record?.evaluation_id;
+    if (!id) {
+      setReward(null);
+      return;
+    }
+    let cancelled = false;
+    void trainerReward(id)
+      .then((r) => {
+        if (!cancelled) setReward(r);
+      })
+      .catch(() => {
+        if (!cancelled) setReward(null);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [record?.evaluation_id]);
 
   const audioRef = useRef<HTMLAudioElement>(null);
   const clipEndRef = useRef<number | null>(null);
@@ -150,11 +173,7 @@ export function QualityRecord({ callId, session, onBack, onOpenCall }: Props): J
               {record.overall_score === null ? "—" : `${record.overall_score}%`}
             </span>
             <span className="text-[11.5px] text-ink-45">
-              {record.reward_tier === "premium"
-                ? "Premium reward"
-                : record.reward_tier === "kudos"
-                  ? "Kudos"
-                  : "no reward tier"}
+              {trainerRewardLabel(reward)}
             </span>
           </div>
         </div>

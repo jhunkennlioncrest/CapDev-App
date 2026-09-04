@@ -8,7 +8,13 @@ import {
   type StageCeiling,
   type TrainerStage,
 } from "@/lib/calibration";
-import { trainerScore, type TrainerScore } from "@/lib/calibration";
+import {
+  trainerReward,
+  trainerRewardLabel,
+  trainerScore,
+  type TrainerReward,
+  type TrainerScore,
+} from "@/lib/calibration";
 import { resolveSpeakersInText } from "@/lib/speakers";
 import { useSpeakers } from "@/lib/useSpeakers";
 import { CalibrationPanel } from "@/pages/CalibrationPanel";
@@ -136,6 +142,9 @@ export function EvaluationPanel({
   // table, so a submitted calibration can still be scored. The checklist above
   // stays locked exactly as before.
   const [trainer, setTrainer] = useState<TrainerScore | null>(null);
+  // The authoritative reward, derived from the Trainer stage scores.
+  // evaluation.reward_tier is the retired legacy value and is not read.
+  const [reward, setReward] = useState<TrainerReward | null>(null);
   // Stage scoring for the DIRECT trainer path. CalibrationPanel covers calls
   // derived from a Raw QA observation; this covers the rest. Both are
   // kind='calibrated' and the rubric makes no distinction between them, so
@@ -145,12 +154,14 @@ export function EvaluationPanel({
   const refreshTrainer = useCallback(async (): Promise<void> => {
     if (!evaluation || mode !== "calibrated") return;
     try {
-      const [t, ceil, scored] = await Promise.all([
+      const [t, rw, ceil, scored] = await Promise.all([
         trainerScore(evaluation.id),
+        trainerReward(evaluation.id),
         stageCeilings(evaluation.id),
         stageScores(evaluation.id),
       ]);
       setTrainer(t);
+      setReward(rw);
       setCeilings(Object.fromEntries(ceil.map((c) => [c.stage, c])));
       setStageValues(
         Object.fromEntries(Object.entries(scored).map(([k, v]) => [k, v.score])),
@@ -290,13 +301,7 @@ export function EvaluationPanel({
             <Stat value={`${answered}/${total}`} label={isRaw ? "observed" : "answered"} />
             {!isRaw && (
               <Stat
-                value={
-                  evaluation.reward_tier === "premium"
-                    ? "Premium"
-                    : evaluation.reward_tier === "kudos"
-                      ? "Kudos"
-                      : "—"
-                }
+                value={trainerRewardLabel(reward)}
                 label="reward"
               />
             )}

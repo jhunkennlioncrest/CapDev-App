@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { listRepository, statsFrom, type RepositoryRow } from "@/lib/repository";
+import { trainerRewards, type TrainerReward } from "@/lib/calibration";
 import { formatDate, formatDuration } from "@/lib/format";
 
 interface Props {
@@ -27,10 +28,15 @@ export function QualityRepository({ onOpenRecord, onBack, embedded = false }: Pr
   const [sort, setSort] = useState<SortKey>("recent");
   const [filter, setFilter] = useState<"all" | "unpublished" | "escalations" | "revised">("all");
   const [error, setError] = useState<string | null>(null);
+  // Rewards come from v_trainer_reward, not from the row's legacy
+  // reward_tier. One batched query for the page rather than one per row.
+  const [rewards, setRewards] = useState<Record<string, TrainerReward>>({});
 
   const load = useCallback(async (): Promise<void> => {
     try {
-      setRows(await listRepository());
+      const list = await listRepository();
+      setRows(list);
+      setRewards(await trainerRewards(list.map((r) => r.evaluation_id)));
       setError(null);
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
@@ -182,14 +188,14 @@ export function QualityRepository({ onOpenRecord, onBack, embedded = false }: Pr
                         Escalation
                       </span>
                     )}
-                    {r.reward_tier === "premium" && (
-                      <span className="text-[11px] border border-[#1F7A4D] text-[#1F7A4D] rounded-full px-2 py-0.5">
-                        Premium
-                      </span>
-                    )}
-                    {r.reward_tier === "kudos" && (
+                    {rewards[r.evaluation_id]?.trainer_reward_tier === "kudos" && (
                       <span className="text-[11px] border border-[#1F7A4D] text-[#1F7A4D] rounded-full px-2 py-0.5">
                         Kudos
+                      </span>
+                    )}
+                    {rewards[r.evaluation_id]?.premium_pending_turnaround && (
+                      <span className="text-[11px] border border-[#96690A] text-[#96690A] rounded-full px-2 py-0.5">
+                        Premium &mdash; pending
                       </span>
                     )}
                     {r.under_revision && (

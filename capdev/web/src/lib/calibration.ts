@@ -413,6 +413,75 @@ export async function trainerScore(evaluationId: string): Promise<TrainerScore |
 }
 
 /**
+ * The authoritative reward for a calibrated evaluation.
+ *
+ * Derived, never stored. v_trainer_reward computes it from the five Trainer
+ * stage scores and the non-negotiables. evaluation.reward_tier is the retired
+ * legacy value, written by an older engine that knew nothing about stage
+ * scores, and is deliberately not read here or anywhere else.
+ *
+ * Premium is never awarded by this view. Where the conditions are otherwise
+ * met, premium_pending_turnaround is true and the reason explains that the
+ * rubric's "fully turned around" determination does not yet exist in CapDev.
+ * That state is shown as pending rather than as no reward, so a blocked
+ * Premium reads as blocked.
+ *
+ * Calibrated evaluations only: the view has no row for a raw observation, so
+ * null here means either "not calibrated" or "no row yet", and both render the
+ * same way.
+ */
+export interface TrainerReward {
+  evaluation_id: string;
+  trainer_overall_score: number | null;
+  trainer_reward_tier: "kudos" | "none" | null;
+  premium_pending_turnaround: boolean;
+  trainer_reward_reason: string | null;
+}
+
+const TRAINER_REWARD_COLUMNS =
+  "evaluation_id, trainer_overall_score, trainer_reward_tier, " +
+  "premium_pending_turnaround, trainer_reward_reason";
+
+export async function trainerReward(evaluationId: string): Promise<TrainerReward | null> {
+  const { data, error } = await supabase
+    .from("v_trainer_reward")
+    .select(TRAINER_REWARD_COLUMNS)
+    .eq("evaluation_id", evaluationId)
+    .maybeSingle();
+  if (error) throw new Error(error.message);
+  return (data as TrainerReward | null) ?? null;
+}
+
+/** Batched for lists: one query for the whole page, not one per row. */
+export async function trainerRewards(
+  evaluationIds: string[],
+): Promise<Record<string, TrainerReward>> {
+  if (evaluationIds.length === 0) return {};
+  const { data, error } = await supabase
+    .from("v_trainer_reward")
+    .select(TRAINER_REWARD_COLUMNS)
+    .in("evaluation_id", evaluationIds);
+  if (error) throw new Error(error.message);
+  return Object.fromEntries(
+    ((data ?? []) as unknown as TrainerReward[]).map((r) => [r.evaluation_id, r]),
+  );
+}
+
+/**
+ * The four states a Trainer reward can be in, in one place so that every
+ * surface says the same words.
+ *
+ * Null covers both "stages incomplete" and "no row", which read identically to
+ * a user: nothing has been earned yet.
+ */
+export function trainerRewardLabel(r: TrainerReward | null): string {
+  if (!r || r.trainer_reward_tier === null) return "—";
+  if (r.trainer_reward_tier === "kudos") return "Kudos";
+  if (r.premium_pending_turnaround) return "Premium — pending determination";
+  return "—";
+}
+
+/**
  * Upsert on (evaluation_id, stage), the table's primary key, so re-scoring a
  * stage replaces the previous judgement rather than failing or duplicating.
  *
