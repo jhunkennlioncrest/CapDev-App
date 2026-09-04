@@ -59,6 +59,14 @@ interface Props {
   onClose: () => void;
 }
 
+/**
+ * Evaluation fields that v_trainer_reward reads.
+ *
+ * A patch touching one of these changes the derived reward and must refresh
+ * it. A summary-note save must not, or every blur costs a needless round trip.
+ */
+const REWARD_INPUT_FIELDS = ["author_end_state", "is_high_risk"];
+
 export function EvaluationPanel({
   callId,
   callTitle,
@@ -209,6 +217,10 @@ export function EvaluationPanel({
       await saveScore(evaluation.id, criterion.id, next, remarks[criterion.id] ?? "");
       await sync(evaluation.id);
       await reloadEvidence(evaluation.id);
+      // A criterion value feeds nn1_to_nn7_all_pass in
+      // v_trainer_determination, so the derived reward can change here.
+      // setRemark does not: it re-saves the same value with new prose.
+      void refreshTrainer();
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
     }
@@ -230,6 +242,12 @@ export function EvaluationPanel({
     setEvaluation({ ...evaluation, ...p } as Evaluation);
     await updateEvaluation(evaluation.id, p);
     await sync(evaluation.id);
+    // Refresh the derived reward only when the patch actually touched one of
+    // its inputs. Keyed off the field names so a future reward input added to
+    // REWARD_INPUT_FIELDS is covered without revisiting this call site.
+    if (Object.keys(p).some((k) => REWARD_INPUT_FIELDS.includes(k))) {
+      void refreshTrainer();
+    }
   }
 
   async function submit(): Promise<void> {
@@ -461,6 +479,7 @@ export function EvaluationPanel({
             evaluationId={evaluation.id}
             session={session}
             locked={locked}
+            onRaised={() => void refreshTrainer()}
           />
 
           <label className="block">
@@ -513,6 +532,7 @@ export function EvaluationPanel({
             evaluationId={evaluation.id}
             session={session}
             locked={locked}
+            onRaised={() => void refreshTrainer()}
           />
         </section>
       )}

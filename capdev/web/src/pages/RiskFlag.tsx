@@ -22,12 +22,22 @@ export function RiskFlag({
   evaluationId,
   session,
   locked = false,
+  onRaised,
 }: {
   callId: string;
   evaluationId: string;
   session: Session;
   /** Submitted evaluations are frozen; existing risks stay readable. */
   locked?: boolean;
+  /**
+   * Fired after a risk is RAISED, not after one is determined.
+   *
+   * Raising inserts a risk_record, and flag_evaluation_from_risk (AFTER
+   * INSERT) sets evaluation.is_high_risk — which v_trainer_reward reads.
+   * determine_risk only updates the risk_record itself and leaves
+   * is_high_risk alone, so a determination needs no notification.
+   */
+  onRaised?: () => void;
 }): JSX.Element {
   const [risks, setRisks] = useState<RiskRecord[]>([]);
   const [adding, setAdding] = useState(false);
@@ -68,6 +78,7 @@ export function RiskFlag({
       setAdding(false);
       setError(null);
       await load();
+      onRaised?.();
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
     }
