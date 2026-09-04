@@ -64,7 +64,7 @@ export function CalibrationPanel({
   onPlayClip,
   onCountsChanged,
   onNeedEvidence,
-  onStageScored,
+  onDerivedStateChanged,
 }: {
   evaluationId: string;
   callId: string;
@@ -74,8 +74,18 @@ export function CalibrationPanel({
   onCountsChanged?: (decided: number, total: number) => void;
   /** Opens the transcript picker when there is nothing cited yet. */
   onNeedEvidence?: (criterionId: string) => void;
-  /** Fired after a stage score is saved so the overall can refresh. */
-  onStageScored?: () => void;
+  /**
+   * Fired after any change that can move the Trainer-derived state the
+   * parent shows: the trainer score and the authoritative reward.
+   *
+   * That is a stage score, a criterion decision that actually changes the
+   * value (NN1-NN7 feed nn1_to_nn7_all_pass in v_trainer_determination), and
+   * agreeing the remaining criteria, which settles those values in bulk.
+   *
+   * Deliberately NOT fired for a note-only edit, which re-saves the same
+   * value with new prose and cannot change anything derived.
+   */
+  onDerivedStateChanged?: () => void;
 }): JSX.Element {
   // One mapping for the whole panel: reviewer evidence and trainer evidence
   // resolve through exactly the same source as the main transcript.
@@ -115,12 +125,12 @@ export function CalibrationPanel({
           score,
           scoredBy: session.person.id,
         });
-        onStageScored?.();
+        onDerivedStateChanged?.();
       } catch (e) {
         setError(e instanceof Error ? e.message : String(e));
       }
     },
-    [evaluationId, session.person.id, onStageScored],
+    [evaluationId, session.person.id, onDerivedStateChanged],
   );
 
   const load = useCallback(async (): Promise<void> => {
@@ -166,6 +176,10 @@ export function CalibrationPanel({
   );
 
   async function onDecide(row: CalibrationRow, value: Answer, note?: string): Promise<void> {
+    // Note-only edits re-send the current value (see the remark handlers
+    // below), and those cannot move anything derived. Captured before the
+    // optimistic update, while row still holds the previous answer.
+    const valueChanged = value !== row.value;
     // Optimistic: the trainer should never wait to see their own decision.
     setRows((rs) =>
       rs.map((r) =>
@@ -192,6 +206,7 @@ export function CalibrationPanel({
     try {
       await decide({ evaluationId, criterionId: row.criterion_id, value, note });
       await load();
+      if (valueChanged) onDerivedStateChanged?.();
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
       await load();
@@ -203,6 +218,7 @@ export function CalibrationPanel({
     try {
       await agreeWithRemaining(evaluationId);
       await load();
+      onDerivedStateChanged?.();
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
     } finally {

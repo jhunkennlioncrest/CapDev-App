@@ -350,7 +350,7 @@ export function EvaluationPanel({
           onCountsChanged={(decided, totalCount) =>
             setCalibrated({ decided, total: totalCount })
           }
-          onStageScored={() => void refreshTrainer()}
+          onDerivedStateChanged={() => void refreshTrainer()}
           onNeedEvidence={(criterionId) => {
             // Nothing cited yet, so send them to the transcript first — the
             // same picker used everywhere else.
