@@ -57,6 +57,8 @@ export interface RawWorklistItem {
   reviewer_name: string | null;
   has_recording: boolean;
   transcription_status: string | null;
+  /** Who uploaded it. Drives the Delete control on the To Review list. */
+  created_by: string | null;
   next_step:
     | "needs_audio"
     | "transcribing"

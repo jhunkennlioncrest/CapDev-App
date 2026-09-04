@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from "react";
 import { SubNav } from "@/components/AppShell";
 import { UploadDialog } from "@/components/UploadDialog";
 import { getRawWorklist, type RawWorklistItem } from "@/lib/workflow";
+import { deleteCall } from "@/lib/calls";
 import { listPlaylists, getPlaylistContents, type PlaylistSummary, type PlaylistCall } from "@/lib/playlists";
 import { formatDate, formatDuration } from "@/lib/format";
 import type { Session } from "@/lib/types";
@@ -29,6 +30,10 @@ export function RawQAWorkspace({ session, onOpenCall }: Props): JSX.Element {
   const [uploadOpen, setUploadOpen] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
+  // Which card is asking for confirmation, and what has been typed into it.
+  const [confirmId, setConfirmId] = useState<string | null>(null);
+  const [confirmText, setConfirmText] = useState("");
+  const [deletingId, setDeletingId] = useState<string | null>(null);
 
   const load = useCallback(async (): Promise<void> => {
     try {
@@ -46,6 +51,30 @@ export function RawQAWorkspace({ session, onOpenCall }: Props): JSX.Element {
   useEffect(() => {
     void load();
   }, [load]);
+
+  /**
+   * Purges an upload straight from the list, so an obvious mistake does not
+   * have to be opened first.
+   *
+   * Offered only on the reviewer's own uploads. The list itself is already
+   * limited to pre-submission calls, and authorize_call_purge() re-checks
+   * organisation, permission, ownership and submission server-side, so this
+   * decides what to render and nothing more.
+   */
+  async function removeCall(callId: string): Promise<void> {
+    setDeletingId(callId);
+    setError(null);
+    try {
+      await deleteCall(callId);
+      setConfirmId(null);
+      setConfirmText("");
+      await load();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setDeletingId(null);
+    }
+  }
 
   async function toggle(id: string): Promise<void> {
     if (expanded === id) {
@@ -157,7 +186,65 @@ export function RawQAWorkspace({ session, onOpenCall }: Props): JSX.Element {
                           ? "Start"
                           : "Open"}
                     </button>
+                    {t.created_by === session.person.id && confirmId !== t.call_id && (
+                      <button
+                        onClick={() => {
+                          setConfirmId(t.call_id);
+                          setConfirmText("");
+                        }}
+                        title="Permanently delete this recording and its call data. This cannot be undone."
+                        className="border border-rule rounded px-3 py-1.5 text-[13px] text-ink-70 hover:bg-ground-2"
+                      >
+                        Delete
+                      </button>
+                    )}
                   </div>
+                  {confirmId === t.call_id && (
+                    <div className="w-full border border-[#AC3A2A] rounded p-3">
+                      <p className="text-sm font-medium">
+                        Delete this recording permanently?
+                      </p>
+                      <p className="text-[12.5px] text-ink-70 mt-1">
+                        This will permanently remove the recording and its
+                        associated call data. This action cannot be undone.
+                      </p>
+                      <label
+                        htmlFor={`confirm-delete-${t.call_id}`}
+                        className="block text-[12.5px] text-ink-70 mt-3"
+                      >
+                        Type <span className="font-medium text-ink">DELETE</span> to
+                        confirm.
+                      </label>
+                      <input
+                        id={`confirm-delete-${t.call_id}`}
+                        value={confirmText}
+                        onChange={(e) => setConfirmText(e.target.value)}
+                        disabled={deletingId === t.call_id}
+                        autoComplete="off"
+                        spellCheck={false}
+                        className="mt-1 w-full max-w-sm border border-rule rounded px-2 py-1.5 text-sm"
+                      />
+                      <div className="flex gap-2 mt-3">
+                        <button
+                          onClick={() => {
+                            setConfirmId(null);
+                            setConfirmText("");
+                          }}
+                          disabled={deletingId === t.call_id}
+                          className="border border-rule rounded px-3 py-2 text-sm hover:bg-ground-2 disabled:opacity-40"
+                        >
+                          Cancel
+                        </button>
+                        <button
+                          onClick={() => void removeCall(t.call_id)}
+                          disabled={deletingId === t.call_id || confirmText !== "DELETE"}
+                          className="border border-[#AC3A2A] text-[#AC3A2A] rounded px-3 py-2 text-sm font-medium hover:bg-[#AC3A2A] hover:text-ground disabled:opacity-40"
+                        >
+                          {deletingId === t.call_id ? "Deleting\u2026" : "Delete permanently"}
+                        </button>
+                      </div>
+                    </div>
+                  )}
                 </li>
               ))}
             </ul>
