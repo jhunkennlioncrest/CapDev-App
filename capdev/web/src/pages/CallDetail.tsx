@@ -2,10 +2,10 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { SpeakerManager } from "@/pages/SpeakerManager";
 import { displaySpeaker, type SpeakerMap } from "@/lib/speakers";
 import {
-  ARCHIVABLE_STATUSES,
-  archiveCall,
+  deleteCall,
   getCall,
   getTranscript,
+  isCallSubmitted,
   latestJob,
   requestTranscription,
   saveReviewedTranscript,
@@ -49,8 +49,11 @@ export function CallDetail({ callId, session, onBack }: Props): JSX.Element {
   const [forceCalibrate, setForceCalibrate] = useState(false);
   const clipEndRef = useRef<number | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [confirmArchive, setConfirmArchive] = useState(false);
-  const [archiving, setArchiving] = useState(false);
+  const [confirmDelete, setConfirmDelete] = useState(false);
+  const [confirmText, setConfirmText] = useState("");
+  const [deleting, setDeleting] = useState(false);
+  // null while unknown, so the control stays hidden until the answer is in.
+  const [submitted, setSubmitted] = useState<boolean | null>(null);
   const [loading, setLoading] = useState(true);
   const audioRef = useRef<HTMLAudioElement>(null);
   const playerRef = useRef<HTMLDivElement>(null);
@@ -62,46 +65,52 @@ export function CallDetail({ callId, session, onBack }: Props): JSX.Element {
   const canUpload = session.permissions.includes("call.upload");
 
   /**
-   * Offer Archive only on your own upload, and only before a trainer has it.
+   * Offer Delete only on your own upload, and only until you submit it.
    *
-   * Deliberately absent rather than disabled when either test fails: a greyed
+   * Deliberately absent rather than disabled when any test fails: a greyed
    * button on someone else's call invites a request for an exception, and a
    * submitted call is part of the retained quality record.
    *
-   * Presentation only. archive_own_unsubmitted_call() re-checks organisation,
-   * owner and workflow state server-side and refuses regardless of this.
+   * Presentation only. authorize_call_purge() re-checks organisation, Raw QA
+   * permission, owner and submission server-side and refuses regardless of
+   * this.
    */
-  const canArchive =
+  const canDelete =
     call !== null &&
     call.created_by !== null &&
     call.created_by === session.person.id &&
-    (ARCHIVABLE_STATUSES as readonly string[]).includes(call.workflow_status);
+    session.permissions.includes("raw_qa.submit") &&
+    submitted === false;
 
-  async function doArchive(): Promise<void> {
-    setArchiving(true);
+  async function doDelete(): Promise<void> {
+    setDeleting(true);
     setError(null);
     try {
-      await archiveCall(callId);
-      // It no longer appears in any list, so there is nothing to come back to.
+      await deleteCall(callId);
+      // It no longer exists, so there is nothing to come back to.
       onBack();
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
-      setConfirmArchive(false);
+      setConfirmDelete(false);
+      setConfirmText("");
     } finally {
-      setArchiving(false);
+      setDeleting(false);
     }
   }
+
   const workspace = workspaceFor(session.permissions);
 
   const load = useCallback(async (): Promise<void> => {
     try {
-      const [c, t, j] = await Promise.all([
+      const [c, t, j, sub] = await Promise.all([
         getCall(callId),
         getTranscript(callId),
         latestJob(callId),
+        isCallSubmitted(callId),
       ]);
       setCall(c);
       setTranscript(t);
+      setSubmitted(sub);
       // Identities resolve at render, so they have to be in hand before the
       // first paint — otherwise a named transcript flashes raw labels.
       setSpeakerMap(t?.speakers ?? {});
@@ -328,34 +337,59 @@ export function CallDetail({ callId, session, onBack }: Props): JSX.Element {
                     Calibrate directly
                   </button>
                 )}
-              {canArchive &&
-                (confirmArchive ? (
-                  <span className="flex items-center gap-2 flex-wrap">
-                    <span className="text-[12.5px] text-ink-70">
-                      Archive this call? The recording is kept.
-                    </span>
-                    <button
-                      onClick={() => setConfirmArchive(false)}
-                      disabled={archiving}
-                      className="border border-rule rounded px-3 py-2 text-sm hover:bg-ground-2 disabled:opacity-40"
+              {canDelete &&
+                (confirmDelete ? (
+                  <div className="border border-[#AC3A2A] rounded p-3 w-full max-w-md">
+                    <p className="text-sm font-medium">
+                      Delete this recording permanently?
+                    </p>
+                    <p className="text-[12.5px] text-ink-70 mt-1">
+                      This will permanently remove the recording and its
+                      associated call data. This action cannot be undone.
+                    </p>
+                    <label
+                      htmlFor="confirm-delete"
+                      className="block text-[12.5px] text-ink-70 mt-3"
                     >
-                      Cancel
-                    </button>
-                    <button
-                      onClick={() => void doArchive()}
-                      disabled={archiving}
-                      className="border border-[#AC3A2A] text-[#AC3A2A] rounded px-3 py-2 text-sm font-medium hover:bg-[#AC3A2A] hover:text-ground disabled:opacity-40"
-                    >
-                      {archiving ? "Archiving…" : "Yes, archive"}
-                    </button>
-                  </span>
+                      Type <span className="font-medium text-ink">DELETE</span> to
+                      confirm.
+                    </label>
+                    <input
+                      id="confirm-delete"
+                      value={confirmText}
+                      onChange={(e) => setConfirmText(e.target.value)}
+                      disabled={deleting}
+                      autoComplete="off"
+                      spellCheck={false}
+                      className="mt-1 w-full border border-rule rounded px-2 py-1.5 text-sm"
+                    />
+                    <div className="flex gap-2 mt-3">
+                      <button
+                        onClick={() => {
+                          setConfirmDelete(false);
+                          setConfirmText("");
+                        }}
+                        disabled={deleting}
+                        className="border border-rule rounded px-3 py-2 text-sm hover:bg-ground-2 disabled:opacity-40"
+                      >
+                        Cancel
+                      </button>
+                      <button
+                        onClick={() => void doDelete()}
+                        disabled={deleting || confirmText !== "DELETE"}
+                        className="border border-[#AC3A2A] text-[#AC3A2A] rounded px-3 py-2 text-sm font-medium hover:bg-[#AC3A2A] hover:text-ground disabled:opacity-40"
+                      >
+                        {deleting ? "Deleting\u2026" : "Delete permanently"}
+                      </button>
+                    </div>
+                  </div>
                 ) : (
                   <button
-                    onClick={() => setConfirmArchive(true)}
-                    title="Remove this call from the lists. The recording and its filename are kept."
+                    onClick={() => setConfirmDelete(true)}
+                    title="Permanently delete this recording and its call data. This cannot be undone."
                     className="border border-rule rounded px-4 py-2 text-sm text-ink-70 hover:bg-ground-2"
                   >
-                    Archive
+                    Delete
                   </button>
                 ))}
               <button

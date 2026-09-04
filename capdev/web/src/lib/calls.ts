@@ -168,36 +168,74 @@ export async function uploadCall(
 }
 
 /**
- * The call states a Raw QA reviewer may still archive their own upload from.
+ * Whether Raw QA has already submitted their observation of this call.
  *
- * Mirrors the guard in archive_own_unsubmitted_call(). Duplicated here only to
- * decide whether to render the control — the database is the authority, and
- * refuses regardless of what this array says.
+ * submitted_at, deliberately, not status: calibration supersedes a submitted
+ * raw observation, and a status test would then read a call Raw QA really did
+ * submit as never submitted. submitted_at is written once and never cleared.
+ *
+ * Used only to decide whether to offer deletion. The database re-checks the
+ * same thing and refuses regardless of what this returns.
  */
-export const ARCHIVABLE_STATUSES = [
-  "draft",
-  "ready_for_raw_qa",
-  "raw_qa_in_progress",
-] as const;
+export async function isCallSubmitted(callId: string): Promise<boolean> {
+  const { data, error } = await supabase
+    .from("evaluation")
+    .select("id")
+    .eq("call_id", callId)
+    .eq("kind", "raw_observation")
+    .not("submitted_at", "is", null)
+    .limit(1);
+  if (error) throw new Error(error.message);
+  return (data ?? []).length > 0;
+}
 
 /**
- * Archives a call the signed-in person uploaded, before it reaches a trainer.
+ * Permanently deletes a call the signed-in person uploaded, before submission.
  *
- * Not a delete. The recording, its storage object, any transcript and any
- * draft observation all survive; the call simply stops appearing, because
- * every view filters archived_at.
+ * A real purge, not an archive. The storage object, the recording row, any
+ * transcript, transcription job, draft observation, evidence and moment are
+ * all removed, and none of it comes back.
  *
- * Ownership and workflow state are enforced inside the function, which runs
- * security definer and therefore checks the organisation by hand as well —
- * RLS is off in there. The error text comes back from the database, so the
- * reason a refusal happened is the database's own words rather than a guess
- * made here.
+ * Three steps, in this order deliberately:
+ *
+ *   1. authorize_call_purge() runs every guard and returns the storage paths.
+ *      Nothing is deleted yet, so a caller who is not entitled to this call is
+ *      refused before any file is destroyed.
+ *   2. The objects are removed from the bucket. SQL cannot reach storage, so
+ *      this half has to happen here.
+ *   3. delete_unsubmitted_call() re-runs every guard and removes the rows.
+ *
+ * Storage goes first because the alternative is worse: deleting rows and then
+ * failing would strand the audio in the bucket with nothing left holding its
+ * path, invisible and impossible to find again. This way the worst failure
+ * leaves a call still listed whose audio is gone, which is visible and is
+ * fixed by running the delete again.
+ *
+ * Every guard is enforced in the database, which runs security definer and so
+ * checks organisation, ownership and submission by hand. Refusal text comes
+ * back in the database's own words rather than being guessed at here.
  */
-export async function archiveCall(callId: string): Promise<void> {
-  const { error } = await supabase.rpc("archive_own_unsubmitted_call", {
+export async function deleteCall(callId: string): Promise<void> {
+  const { data, error } = await supabase.rpc("authorize_call_purge", {
     p_call_id: callId,
   });
   if (error) throw new Error(error.message);
+
+  const paths = ((data ?? []) as { storage_path: string | null }[])
+    .map((row) => row.storage_path)
+    .filter((path): path is string => Boolean(path));
+
+  if (paths.length > 0) {
+    const { error: storageError } = await supabase.storage.from(BUCKET).remove(paths);
+    // Stop before touching rows: if the object survived, deleting the row that
+    // points at it would orphan it beyond recovery.
+    if (storageError) throw new Error(storageError.message);
+  }
+
+  const { error: deleteError } = await supabase.rpc("delete_unsubmitted_call", {
+    p_call_id: callId,
+  });
+  if (deleteError) throw new Error(deleteError.message);
 }
 
 export async function listCalls(): Promise<CallListItem[]> {
