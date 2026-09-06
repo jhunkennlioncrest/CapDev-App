@@ -36,7 +36,9 @@ export interface CallListItem {
   transcription_status: "queued" | "running" | "succeeded" | "failed" | "cancelled" | null;
   transcription_error: string | null;
   workflow_status: import("./workflow").WorkflowStatus;
-  /** Human-readable author name. Feeds the generated title (0062). */
+  /** Human-readable author name. DERIVED, never typed (0069): written by the
+   *  database from the Named Speakers marked Author, at Raw QA submission
+   *  and again at calibrated submission. Display-only. */
   author_name: string;
   /** Recording-platform identifier, e.g. a Zoom meeting ID (0063). Kept
    *  separate from customer_ref, and never part of the title. */
@@ -51,15 +53,15 @@ export interface CallListItem {
 /**
  * What the upload form collects.
  *
- * There is no `title`: the displayed title is generated from the
- * representative, the author and the date. Nothing typed here becomes the
- * title, and the filename never does — that is kept, untouched, as
- * recording.original_filename.
+ * There is no `title` and no `authorName`: the displayed title is generated
+ * from the representative, a pending-author placeholder and the date (0069).
+ * Nothing typed here becomes the title, and the filename never does — that
+ * is kept, untouched, as recording.original_filename. The author arrives
+ * later, from the Named Speakers, and is written by the database.
  */
 export interface UploadDraft {
   file: File;
   agentName: string;
-  authorName: string;
   meetingId: string;
   occurredAt: string;
   durationMs: number | null;

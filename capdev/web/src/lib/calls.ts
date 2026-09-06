@@ -50,7 +50,8 @@ export function validateFile(file: File): string | null {
 
 export const TITLE_SEPARATOR = " \u00B7 ";
 export const REP_NOT_SET = "Rep not set";
-export const AUTHOR_NOT_SET = "Author not set";
+/** The middle segment before Named Speakers have answered the question (0069). */
+export const AUTHOR_PENDING = "Author pending";
 
 /**
  * The displayed call title: Representative \u00B7 Author \u00B7 Date.
@@ -60,9 +61,15 @@ export const AUTHOR_NOT_SET = "Author not set";
  * "Tara Aronson \u00B7 26 Aug 2026" gives a reader no way to tell whether that
  * name is the representative or the author.
  *
+ * The author is NOT collected at upload any more (0069). At upload time nobody
+ * has heard the call yet, so the middle segment is written as "Author pending"
+ * and the database fills it in from the Named Speakers when Raw QA submits,
+ * and again when calibration is submitted. The segment stays: removing it
+ * would reintroduce exactly the ambiguity the shape exists to prevent.
+ *
  * The date always resolves, so the title is never empty and never ends in a
  * dangling separator. occurred_at when the uploader gave one, otherwise the
- * upload date — created_at is a database default and does not exist on the
+ * upload date \u2014 created_at is a database default and does not exist on the
  * client before the insert.
  *
  * This is a label, never an identifier. Recordings are retrieved by
@@ -70,14 +77,12 @@ export const AUTHOR_NOT_SET = "Author not set";
  */
 export function buildCallTitle(draft: {
   agentName: string;
-  authorName: string;
   occurredAt: string;
 }): string {
   const rep = draft.agentName.trim() || REP_NOT_SET;
-  const author = draft.authorName.trim() || AUTHOR_NOT_SET;
   const when = draft.occurredAt ? new Date(draft.occurredAt) : new Date();
   const safe = Number.isNaN(when.getTime()) ? new Date() : when;
-  return [rep, author, formatDate(safe.toISOString())].join(TITLE_SEPARATOR);
+  return [rep, AUTHOR_PENDING, formatDate(safe.toISOString())].join(TITLE_SEPARATOR);
 }
 
 /**
@@ -106,7 +111,10 @@ export async function uploadCall(
       // verbatim on the recording row below.
       title: buildCallTitle(draft),
       agent_name: draft.agentName.trim(),
-      author_name: draft.authorName.trim(),
+      // Derived, never typed (0069). Left empty here and written by the
+      // database at Raw QA submission and again at calibrated submission,
+      // from the Named Speakers marked with the Author role.
+      author_name: "",
       // customer_ref is deliberately NOT written any more. The column and its
       // historical values stay exactly as they are; uploads now capture the
       // recording platform's own identifier instead, which is a different fact.

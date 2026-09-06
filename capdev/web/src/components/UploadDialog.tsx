@@ -22,7 +22,6 @@ export function UploadDialog({ session, onClose, onUploaded }: Props): JSX.Eleme
   const [file, setFile] = useState<File | null>(null);
   const [durationMs, setDurationMs] = useState<number | null>(null);
   const [agentName, setAgentName] = useState("");
-  const [authorName, setAuthorName] = useState("");
   const [repId, setRepId] = useState("");
   // Skipping Raw QA is a calibration decision, so it is offered on the
   // capability rather than on a role name. Uploading is a separate capability
@@ -40,7 +39,7 @@ export function UploadDialog({ session, onClose, onUploaded }: Props): JSX.Eleme
 
   // Shown live, so the uploader sees the title their entries produce rather
   // than discovering it afterwards in the library.
-  const previewTitle = buildCallTitle({ agentName, authorName, occurredAt });
+  const previewTitle = buildCallTitle({ agentName, occurredAt });
 
   async function accept(chosen: File): Promise<void> {
     const problem = validateFile(chosen);
@@ -66,7 +65,6 @@ export function UploadDialog({ session, onClose, onUploaded }: Props): JSX.Eleme
         {
           file,
           agentName,
-          authorName,
           meetingId,
           occurredAt,
           durationMs,
@@ -156,7 +154,12 @@ export function UploadDialog({ session, onClose, onUploaded }: Props): JSX.Eleme
             {/* Every field here is optional. A recording can be uploaded on its
                 own: the title falls back to placeholders rather than blocking
                 ingestion, because Raw QA often uploads a call before hearing it
-                and should not have to research metadata first. */}
+                and should not have to research metadata first.
+
+                The author is deliberately NOT asked for (0069). Nobody knows who
+                it is before the call has been transcribed and its speakers named,
+                and asking here only froze a guess into the title. It is filled in
+                from the Named Speakers when the review is submitted. */}
             <Field label="Representative">
               <RepresentativePicker
                 value={repId}
@@ -166,11 +169,6 @@ export function UploadDialog({ session, onClose, onUploaded }: Props): JSX.Eleme
                 }}
                 canManagePeople={session.permissions.includes("person.manage")}
               />
-            </Field>
-
-            <Field label="Author name">
-              <input value={authorName} onChange={(e) => setAuthorName(e.target.value)}
-                     placeholder="Tara Aronson" className={inputClass} />
             </Field>
 
             {/* Traceability back to the meeting, not a description of it.
@@ -195,7 +193,8 @@ export function UploadDialog({ session, onClose, onUploaded }: Props): JSX.Eleme
               </span>
               <span className="block font-display text-[15px] mt-1">{previewTitle}</span>
               <span className="block text-[11.5px] text-ink-45 mt-1">
-                Generated. The recording keeps its own filename.
+                Generated. The author is filled in from the Named Speakers when
+                the review is submitted. The recording keeps its own filename.
               </span>
             </div>
 

@@ -32,8 +32,41 @@ export interface SpeakerRow {
   segment_count: number;
 }
 
-/** Roles offered as shortcuts. Anything else can be typed. */
-export const SUGGESTED_ROLES = ["Representative", "Author", "Manager", "Guest"];
+/**
+ * The roles offered in the picker.
+ *
+ * A select rather than free text (0069), because the role is no longer only a
+ * label: "Author" is what names the call. Free text drifted — "Prod Rep" was
+ * typed where "Representative" was meant — and a role that misses the
+ * canonical spelling silently drops that person out of the title. Anything
+ * genuinely outside this list is still typeable via "Other".
+ */
+export const SUGGESTED_ROLES = [
+  "Representative",
+  "Author",
+  "Manager",
+  "Guest",
+  "Interpreter",
+];
+
+/** The role that makes a speaker an Author of the call. */
+export const AUTHOR_ROLE = "Author";
+
+/**
+ * The canonical form of a role, for comparison only — never for storage.
+ *
+ * Mirrors `lower(btrim(role))` in the database exactly, so the picker and the
+ * title derivation agree about who counts as an Author. Deliberately NOT a
+ * prefix or fuzzy match: "Author's spouse" is not an Author.
+ */
+export function normaliseRole(role: string | null | undefined): string {
+  return (role ?? "").trim().toLowerCase();
+}
+
+/** Whether this speaker is an Author, by the same rule the database uses. */
+export function isAuthorRole(role: string | null | undefined): boolean {
+  return normaliseRole(role) === "author";
+}
 
 export async function getSpeakers(transcriptId: string): Promise<SpeakerRow[]> {
   const { data, error } = await supabase

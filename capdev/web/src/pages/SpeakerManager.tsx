@@ -8,6 +8,9 @@ import {
   type SpeakerRow,
 } from "@/lib/speakers";
 
+/** Sentinel for the "Other" option. Never stored — the typed text is. */
+const OTHER_ROLE = "__other__";
+
 /**
  * Names the people in a transcript, once each.
  *
@@ -124,7 +127,8 @@ export function SpeakerManager({
           )}
           <p className="text-[12px] text-ink-45 pt-1">
             Naming a speaker updates every line they spoke. The transcript
-            itself is not changed.
+            itself is not changed. Marking someone as Author is what names this
+            call — the title is filled in when the review is submitted.
           </p>
         </div>
       )}
@@ -147,6 +151,11 @@ function SpeakerEditor({
 }): JSX.Element {
   const [name, setName] = useState(row.name ?? "");
   const [role, setRole] = useState(row.role ?? "");
+  // A role already in the data that is not one of the offered ones opens in
+  // "Other" so it is visible and editable rather than silently reset.
+  const [roleIsOther, setRoleIsOther] = useState(
+    Boolean(row.role) && !SUGGESTED_ROLES.includes(row.role as string),
+  );
   const [repId, setRepId] = useState(row.representative_id ?? "");
   const [reps, setReps] = useState<Representative[]>([]);
   const [busy, setBusy] = useState(false);
@@ -193,6 +202,7 @@ function SpeakerEditor({
               if (chosen) {
                 setName(chosen.display_name);
                 setRole("Representative");
+                setRoleIsOther(false);
               }
             }}
             className="w-full border border-rule rounded px-2.5 py-1.5 bg-white text-[13.5px]"
@@ -223,24 +233,43 @@ function SpeakerEditor({
           />
         </label>
         <label className="block">
-          <span className="block text-[12px] font-semibold mb-1">
-            Role <span className="font-normal text-ink-45">optional</span>
-          </span>
-          <input
-            value={role}
-            onChange={(e) => setRole(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === "Enter") void save();
+          <span className="block text-[12px] font-semibold mb-1">Role</span>
+          {/* A select, not free text (0069). The role is no longer only a label:
+              "Author" is what names the call, so a near-miss spelling silently
+              drops that person out of the title. */}
+          <select
+            value={roleIsOther ? OTHER_ROLE : role}
+            onChange={(e) => {
+              if (e.target.value === OTHER_ROLE) {
+                setRoleIsOther(true);
+                setRole("");
+              } else {
+                setRoleIsOther(false);
+                setRole(e.target.value);
+              }
             }}
-            placeholder="Representative"
-            list={`roles-${row.label}`}
+            disabled={Boolean(repId)}
             className="w-full border border-rule rounded px-2.5 py-1.5 bg-white text-[13.5px]"
-          />
-          <datalist id={`roles-${row.label}`}>
+          >
+            <option value="">Not set</option>
             {SUGGESTED_ROLES.map((r) => (
-              <option key={r} value={r} />
+              <option key={r} value={r}>
+                {r}
+              </option>
             ))}
-          </datalist>
+            <option value={OTHER_ROLE}>Other…</option>
+          </select>
+          {roleIsOther && (
+            <input
+              value={role}
+              onChange={(e) => setRole(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") void save();
+              }}
+              placeholder="Spouse, interpreter, another employee…"
+              className="w-full border border-rule rounded px-2.5 py-1.5 bg-white text-[13.5px] mt-1.5"
+            />
+          )}
         </label>
       </div>
 
