@@ -159,30 +159,59 @@ language plpgsql
 security definer
 set search_path to 'public'
 as $function$
+declare
+  v_state  text;
+  v_msg    text;
+  v_astate text;
+  v_amsg   text;
 begin
   begin
     perform public.derive_call_identity(new.call_id);
   exception when others then
-    insert into public.audit_event
-      (org_id, actor_person_id, actor_type, action, entity_type, entity_id,
-       diff, reason, result)
-    values
-      (new.org_id, null, 'system', 'call.identity_derive_failed', 'call',
-       new.call_id,
-       jsonb_build_object('sqlstate', sqlstate, 'message', sqlerrm,
-                          'evaluation_id', new.id, 'evaluation_kind', new.kind),
-       'Deriving the call title from Named Speakers failed. The submission was '
-       || 'not blocked; the title is unchanged.',
-       'failure');
-    raise warning 'derive_call_identity failed for call % (evaluation %): % %',
-      new.call_id, new.id, sqlstate, sqlerrm;
+    get stacked diagnostics v_state = returned_sqlstate, v_msg = message_text;
+
+    -- The warning goes out FIRST, so log visibility never depends on whether
+    -- the audit insert below succeeds.
+    raise warning
+      'derive_call_identity failed for call % (evaluation %): % % -- the submission was not blocked and the title is unchanged',
+      new.call_id, new.id, v_state, v_msg;
+
+    -- The audit row is the durable record of the same fact, and it gets its own
+    -- handler.
+    --
+    -- audit_event has RLS enabled with no INSERT policy; the insert works only
+    -- because this function is owned by the table's owner and the table is not
+    -- FORCE ROW LEVEL SECURITY. Every one of those conditions lives outside
+    -- this migration. If any of them changes -- force RLS, an ownership change,
+    -- a new BEFORE INSERT trigger -- an unguarded insert would raise from
+    -- inside this handler and roll back the evaluation submission, which is the
+    -- one thing this function promises never to do. So the promise is made
+    -- structural rather than left resting on those conditions.
+    begin
+      insert into public.audit_event
+        (org_id, actor_person_id, actor_type, action, entity_type, entity_id,
+         diff, reason, result)
+      values
+        (new.org_id, null, 'system', 'call.identity_derive_failed', 'call',
+         new.call_id,
+         jsonb_build_object('sqlstate', v_state, 'message', v_msg,
+                            'evaluation_id', new.id, 'evaluation_kind', new.kind),
+         'Deriving the call title from Named Speakers failed. The submission was not blocked; the title is unchanged.',
+         'failure');
+    exception when others then
+      get stacked diagnostics v_astate = returned_sqlstate, v_amsg = message_text;
+      raise warning
+        'audit_event insert ALSO failed while recording that derive failure (call %, evaluation %): % % -- the submission was still not blocked',
+        new.call_id, new.id, v_astate, v_amsg;
+    end;
   end;
+
   return new;
 end;
 $function$;
 
 comment on function public.identity_on_evaluation_submit() is
-  '0069: non-blocking wrapper. Unexpected derive failures are written to audit_event as failures and raised as warnings, never swallowed.';
+  '0069: non-blocking wrapper. A derive failure raises a warning first, then attempts an audit_event row under its own handler, so neither the derive nor the audit logging can roll back an evaluation submission. Trigger-internal: not granted to app-facing roles.';
 
 -- ---------------------------------------------------------------------------
 -- The two submission checkpoints.
