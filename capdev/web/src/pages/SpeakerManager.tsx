@@ -236,7 +236,14 @@ function SpeakerEditor({
           <span className="block text-[12px] font-semibold mb-1">Role</span>
           {/* A select, not free text (0069). The role is no longer only a label:
               "Author" is what names the call, so a near-miss spelling silently
-              drops that person out of the title. */}
+              drops that person out of the title.
+
+              Deliberately NOT disabled when a representative is linked (0070).
+              Name and Role answer different questions: the name is who the
+              directory says this person is, the role is what they were doing on
+              THIS call. Somebody in the representative directory can sit in as a
+              manager, an interpreter, or as the author being coached, and the
+              reviewer has to be able to say so. */}
           <select
             value={roleIsOther ? OTHER_ROLE : role}
             onChange={(e) => {
@@ -248,7 +255,6 @@ function SpeakerEditor({
                 setRole(e.target.value);
               }
             }}
-            disabled={Boolean(repId)}
             className="w-full border border-rule rounded px-2.5 py-1.5 bg-white text-[13.5px]"
           >
             <option value="">Not set</option>
@@ -259,6 +265,12 @@ function SpeakerEditor({
             ))}
             <option value={OTHER_ROLE}>Other…</option>
           </select>
+          {repId && !roleIsOther && (
+            <span className="block text-[11.5px] text-ink-45 mt-1">
+              Defaults to Representative — change it if they joined this call in
+              another capacity.
+            </span>
+          )}
           {roleIsOther && (
             <input
               value={role}
