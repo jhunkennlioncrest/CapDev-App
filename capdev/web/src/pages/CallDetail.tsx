@@ -24,6 +24,8 @@ import {
   type Segment,
 } from "@/lib/transcript";
 import { formatDuration, formatCallDate } from "@/lib/format";
+import { OriginalFileLine } from "@/components/OriginalFileLine";
+import { getRecordingFiles, type CallRecordingFiles } from "@/lib/recordingFiles";
 import { EvaluationPanel } from "@/pages/EvaluationPanel";
 import { workspaceFor } from "@/lib/evaluation";
 import { startDirectCalibration } from "@/lib/workflow";
@@ -37,6 +39,7 @@ interface Props {
 
 export function CallDetail({ callId, session, onBack }: Props): JSX.Element {
   const [call, setCall] = useState<CallListItem | null>(null);
+  const [files, setFiles] = useState<CallRecordingFiles | undefined>(undefined);
   const [transcript, setTranscript] = useState<StoredTranscript | null>(null);
   const [audioUrl, setAudioUrl] = useState<string | null>(null);
   const [currentMs, setCurrentMs] = useState(0);
@@ -102,13 +105,15 @@ export function CallDetail({ callId, session, onBack }: Props): JSX.Element {
 
   const load = useCallback(async (): Promise<void> => {
     try {
-      const [c, t, j, sub] = await Promise.all([
+      const [c, t, j, sub, rf] = await Promise.all([
         getCall(callId),
         getTranscript(callId),
         latestJob(callId),
         isCallSubmitted(callId),
+        getRecordingFiles([callId]),
       ]);
       setCall(c);
+      setFiles(rf.get(callId));
       setTranscript(t);
       setSubmitted(sub);
       // Identities resolve at render, so they have to be in hand before the
@@ -420,6 +425,9 @@ export function CallDetail({ callId, session, onBack }: Props): JSX.Element {
           {formatCallDate(call.occurred_at ?? call.created_at)} &middot;{" "}
           <span className="font-mono">{formatDuration(call.duration_ms)}</span>
         </p>
+        {/* Which file was uploaded. Reference metadata under the title,
+            never a substitute for it, and never a storage path. */}
+        <OriginalFileLine files={files} className="block text-[11.5px] text-ink-45 mt-1" />
       </header>
 
       <div className="pt-3 pb-1">

@@ -2,6 +2,8 @@ import { useCallback, useEffect, useState } from "react";
 import { getRawWorklist, type RawWorklistItem } from "@/lib/workflow";
 import { formatDate, formatDuration } from "@/lib/format";
 import { StatusPill } from "@/components/CallTimeline";
+import { OriginalFileLine } from "@/components/OriginalFileLine";
+import { getRecordingFiles, type CallRecordingFiles } from "@/lib/recordingFiles";
 
 interface Props {
   onOpenCall: (id: string) => void;
@@ -16,11 +18,14 @@ interface Props {
  */
 export function RawReviewList({ onOpenCall, onBack }: Props): JSX.Element {
   const [items, setItems] = useState<RawWorklistItem[] | null>(null);
+  const [files, setFiles] = useState<Map<string, CallRecordingFiles>>(new Map());
   const [error, setError] = useState<string | null>(null);
 
   const load = useCallback(async (): Promise<void> => {
     try {
-      setItems(await getRawWorklist());
+      const list = await getRawWorklist();
+      setItems(list);
+      setFiles(await getRecordingFiles(list.map((i) => i.call_id)));
       setError(null);
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
@@ -88,6 +93,7 @@ export function RawReviewList({ onOpenCall, onBack }: Props): JSX.Element {
                     {item.duration_ms ? ` · ${formatDuration(item.duration_ms)}` : ""}
                     {item.reviewer_name && ` · started by ${item.reviewer_name}`}
                   </p>
+                  <OriginalFileLine files={files.get(item.call_id)} />
                 </div>
 
                 <div className="flex items-center gap-3 shrink-0">

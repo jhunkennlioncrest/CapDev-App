@@ -16,6 +16,8 @@ import { trainerReward, trainerRewardLabel, type TrainerReward } from "@/lib/cal
 import { getScoreIds } from "@/lib/moments";
 import { getTranscript, signedUrlFor, type StoredTranscript } from "@/lib/calls";
 import { formatDate, formatDuration } from "@/lib/format";
+import { OriginalFileLine } from "@/components/OriginalFileLine";
+import { getRecordingFiles, type CallRecordingFiles } from "@/lib/recordingFiles";
 import { CallTimeline } from "@/components/CallTimeline";
 import { MOMENT_TYPES } from "@/lib/moments";
 import type { Session } from "@/lib/types";
@@ -38,6 +40,7 @@ interface Props {
  */
 export function QualityRecord({ callId, session, onBack, onOpenCall }: Props): JSX.Element {
   const [record, setRecord] = useState<RepositoryRow | null>(null);
+  const [files, setFiles] = useState<CallRecordingFiles | undefined>(undefined);
   const speakers = useSpeakers(callId);
   const [caseStudies, setCaseStudies] = useState<CallCaseStudy[]>([]);
   const [scores, setScores] = useState<RecordScore[]>([]);
@@ -81,6 +84,7 @@ export function QualityRecord({ callId, session, onBack, onOpenCall }: Props): J
     try {
       const rec = await getRepositoryRecord(callId);
       setRecord(rec);
+      setFiles((await getRecordingFiles([callId])).get(callId));
       if (!rec) return;
 
       const [sc, ids, mo, tr, vs] = await Promise.all([
@@ -167,6 +171,7 @@ export function QualityRecord({ callId, session, onBack, onOpenCall }: Props): J
               {record.submitted_at && ` · ${formatDate(record.submitted_at)}`}
               {record.rubric_version && ` · rubric v${record.rubric_version}`}
             </p>
+            <OriginalFileLine files={files} className="block text-[11.5px] text-ink-45 mt-1" />
           </div>
           <div className="text-right">
             <span className="font-display text-4xl block leading-none">

@@ -5,6 +5,8 @@ import { getRawWorklist, type RawWorklistItem } from "@/lib/workflow";
 import { deleteCall } from "@/lib/calls";
 import { listPlaylists, getPlaylistContents, type PlaylistSummary, type PlaylistCall } from "@/lib/playlists";
 import { formatDate, formatDuration } from "@/lib/format";
+import { OriginalFileLine } from "@/components/OriginalFileLine";
+import { getRecordingFiles, type CallRecordingFiles } from "@/lib/recordingFiles";
 import type { Session } from "@/lib/types";
 
 type Tab = "todo" | "submitted";
@@ -27,6 +29,9 @@ export function RawQAWorkspace({ session, onOpenCall }: Props): JSX.Element {
   const [playlists, setPlaylists] = useState<PlaylistSummary[]>([]);
   const [expanded, setExpanded] = useState<string | null>(null);
   const [contents, setContents] = useState<Record<string, PlaylistCall[]>>({});
+  // Filenames for every call on screen, in both tabs. Accumulated rather
+  // than replaced: a playlist expanded later adds its calls to the map.
+  const [files, setFiles] = useState<Map<string, CallRecordingFiles>>(new Map());
   const [uploadOpen, setUploadOpen] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
@@ -39,6 +44,7 @@ export function RawQAWorkspace({ session, onOpenCall }: Props): JSX.Element {
     try {
       const [w, p] = await Promise.all([getRawWorklist(), listPlaylists("raw_qa")]);
       setTodo(w);
+      await mergeFiles(w.map((x) => x.call_id));
       setPlaylists(p.filter((x) => x.created_by === session.person.id || x.call_count > 0));
       setError(null);
     } catch (e) {
@@ -47,6 +53,17 @@ export function RawQAWorkspace({ session, onOpenCall }: Props): JSX.Element {
       setLoading(false);
     }
   }, [session.person.id]);
+
+  /** Adds filenames for call ids not already held, keeping what is there. */
+  const mergeFiles = useCallback(async (callIds: string[]): Promise<void> => {
+    const fetched = await getRecordingFiles(callIds);
+    if (fetched.size === 0) return;
+    setFiles((prev) => {
+      const next = new Map(prev);
+      fetched.forEach((v, k) => next.set(k, v));
+      return next;
+    });
+  }, []);
 
   useEffect(() => {
     void load();
@@ -86,6 +103,7 @@ export function RawQAWorkspace({ session, onOpenCall }: Props): JSX.Element {
       setContents((c) => ({ ...c, [id]: [] }));
       const rows = await getPlaylistContents(id);
       setContents((c) => ({ ...c, [id]: rows }));
+      await mergeFiles(rows.map((r) => r.call_id));
     }
   }
 
@@ -161,6 +179,7 @@ export function RawQAWorkspace({ session, onOpenCall }: Props): JSX.Element {
                       {t.agent_name || "Rep not set"} &middot; uploaded {formatDate(t.uploaded_at)}
                       {t.duration_ms ? ` · ${formatDuration(t.duration_ms)}` : ""}
                     </p>
+                    <OriginalFileLine files={files.get(t.call_id)} />
                   </div>
                   <div className="flex items-center gap-3 shrink-0">
                     <span
@@ -293,6 +312,7 @@ export function RawQAWorkspace({ session, onOpenCall }: Props): JSX.Element {
                           {c.is_high_risk && (
                             <span className="text-[11px] text-[#AC3A2A] ml-2">escalation</span>
                           )}
+                          <OriginalFileLine files={files.get(c.call_id)} />
                         </span>
                         <span className="flex items-center gap-3 shrink-0">
                           <span className="font-mono text-[11px] text-ink-45">

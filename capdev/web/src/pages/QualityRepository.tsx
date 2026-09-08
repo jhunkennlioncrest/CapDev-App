@@ -2,6 +2,8 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { listRepository, statsFrom, type RepositoryRow } from "@/lib/repository";
 import { trainerRewards, type TrainerReward } from "@/lib/calibration";
 import { formatDate, formatDuration } from "@/lib/format";
+import { OriginalFileLine } from "@/components/OriginalFileLine";
+import { getRecordingFiles, type CallRecordingFiles } from "@/lib/recordingFiles";
 
 interface Props {
   onOpenRecord: (callId: string) => void;
@@ -31,12 +33,14 @@ export function QualityRepository({ onOpenRecord, onBack, embedded = false }: Pr
   // Rewards come from v_trainer_reward, not from the row's legacy
   // reward_tier. One batched query for the page rather than one per row.
   const [rewards, setRewards] = useState<Record<string, TrainerReward>>({});
+  const [files, setFiles] = useState<Map<string, CallRecordingFiles>>(new Map());
 
   const load = useCallback(async (): Promise<void> => {
     try {
       const list = await listRepository();
       setRows(list);
       setRewards(await trainerRewards(list.map((r) => r.evaluation_id)));
+      setFiles(await getRecordingFiles(list.map((r) => r.call_id)));
       setError(null);
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
@@ -210,6 +214,7 @@ export function QualityRepository({ onOpenRecord, onBack, embedded = false }: Pr
                     {r.submitted_at && ` · ${formatDate(r.submitted_at)}`}
                     {r.rubric_version && ` · rubric v${r.rubric_version}`}
                   </p>
+                  <OriginalFileLine files={files.get(r.call_id)} />
                   <p className="font-mono text-[11px] text-ink-45 mt-1">
                     {r.evidence_count} quote{r.evidence_count === 1 ? "" : "s"} ·{" "}
                     {r.moment_count} moment{r.moment_count === 1 ? "" : "s"}

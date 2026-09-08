@@ -83,6 +83,31 @@ export function formatCallDate(iso: string | null): string {
 }
 
 /**
+ * The original-upload-filename line: "Original file: a.mp4", or
+ * "Original files (2): a.mp4, b.mp4" (0071).
+ *
+ * Returns null when there is nothing honest to say, so a caller renders nothing
+ * rather than an empty row or a dash.
+ *
+ * count is how many recordings the call has, and it is reported even when a
+ * name is missing: a recording whose filename is blank shows as "(unnamed)"
+ * and is still counted. Dropping it silently would be the one genuinely
+ * misleading answer available here — the reader would believe they were
+ * looking at the whole list.
+ *
+ * Takes primitives rather than the row type on purpose: this is pure string
+ * formatting, it has no business importing a database client, and keeping it
+ * that way is what lets it be tested on its own.
+ */
+export function originalFilesLabel(names: string[], count: number): string | null {
+  if (count <= 0 || names.length === 0) return null;
+  const shown = names.map((n) => n?.trim() || "(unnamed)");
+  return shown.length === 1
+    ? `Original file: ${shown[0]}`
+    : `Original files (${count}): ${shown.join(", ")}`;
+}
+
+/**
  * Reads duration from the audio file itself, in the browser, before upload.
  * Best-effort: some formats or codecs will not report it, and that is fine —
  * the column is nullable and the real value arrives with the transcript later.

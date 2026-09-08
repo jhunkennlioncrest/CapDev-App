@@ -2,6 +2,8 @@ import { useCallback, useEffect, useState } from "react";
 import { getQueue, startCalibration, type QueueItem } from "@/lib/evaluation";
 import { startDirectCalibration } from "@/lib/workflow";
 import { formatDate, formatDuration } from "@/lib/format";
+import { OriginalFileLine } from "@/components/OriginalFileLine";
+import { getRecordingFiles, type CallRecordingFiles } from "@/lib/recordingFiles";
 
 interface Props {
   onOpenCall: (id: string) => void;
@@ -19,12 +21,15 @@ interface Props {
  */
 export function CalibrationQueue({ onOpenCall, onBack }: Props): JSX.Element {
   const [items, setItems] = useState<QueueItem[] | null>(null);
+  const [files, setFiles] = useState<Map<string, CallRecordingFiles>>(new Map());
   const [error, setError] = useState<string | null>(null);
   const [starting, setStarting] = useState<string | null>(null);
 
   const load = useCallback(async (): Promise<void> => {
     try {
-      setItems(await getQueue());
+      const list = await getQueue();
+      setItems(list);
+      setFiles(await getRecordingFiles(list.map((i) => i.call_id)));
       setError(null);
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
@@ -145,6 +150,7 @@ export function CalibrationQueue({ onOpenCall, onBack }: Props): JSX.Element {
                       )}
                       {item.duration_ms ? ` · ${formatDuration(item.duration_ms)}` : ""}
                     </p>
+                    <OriginalFileLine files={files.get(item.call_id)} />
                     {item.escalation_note && (
                       <p className="text-[13px] text-ink-70 mt-1.5">{item.escalation_note}</p>
                     )}

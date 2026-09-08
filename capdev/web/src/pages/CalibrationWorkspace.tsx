@@ -6,6 +6,8 @@ import { supabase } from "@/lib/supabase";
 import { SubNav } from "@/components/AppShell";
 import { getQueue, startCalibration, type QueueItem } from "@/lib/evaluation";
 import { formatDate, formatDuration } from "@/lib/format";
+import { OriginalFileLine } from "@/components/OriginalFileLine";
+import { getRecordingFiles, type CallRecordingFiles } from "@/lib/recordingFiles";
 
 // The trainer's workspace answers one question: what should I calibrate next?
 // Reviewer groupings are how a reviewer organises their own week — they are
@@ -27,6 +29,7 @@ interface Props {
 export function CalibrationWorkspace({ onOpenCall, session }: Props): JSX.Element {
   const [tab, setTab] = useState<Tab>("ready");
   const [queue, setQueue] = useState<QueueItem[]>([]);
+  const [files, setFiles] = useState<Map<string, CallRecordingFiles>>(new Map());
   const [escalationsOnly, setEscalationsOnly] = useState(false);
   const [starting, setStarting] = useState<string | null>(null);
   const [uploadOpen, setUploadOpen] = useState(false);
@@ -38,6 +41,7 @@ export function CalibrationWorkspace({ onOpenCall, session }: Props): JSX.Elemen
     try {
       const q = await getQueue();
       setQueue(q);
+      setFiles(await getRecordingFiles(q.map((x) => x.call_id)));
       // Throughput matters to a trainer deciding whether to keep going.
       const { data: counts } = await supabase
         .from("v_calibration_queue_counts")
@@ -183,6 +187,7 @@ export function CalibrationWorkspace({ onOpenCall, session }: Props): JSX.Elemen
                 <QueueRow
                   key={q.assignment_id ?? q.call_id}
                   item={q}
+                  files={files.get(q.call_id)}
                   starting={starting === (q.raw_evaluation_id ?? q.call_id)}
                   onStart={() => void begin(q.raw_evaluation_id, q.call_id)}
                 />
@@ -199,6 +204,7 @@ export function CalibrationWorkspace({ onOpenCall, session }: Props): JSX.Elemen
               <QueueRow
                 key={q.assignment_id ?? q.call_id}
                 item={q}
+                files={files.get(q.call_id)}
                 starting={starting === (q.raw_evaluation_id ?? q.call_id)}
                 onStart={() => onOpenCall(q.call_id)}
                 label="Continue"
@@ -218,11 +224,13 @@ export function CalibrationWorkspace({ onOpenCall, session }: Props): JSX.Elemen
 
 function QueueRow({
   item,
+  files,
   starting,
   onStart,
   label = "Calibrate",
 }: {
   item: QueueItem;
+  files: CallRecordingFiles | undefined;
   starting: boolean;
   onStart: () => void;
   label?: string;
@@ -243,6 +251,7 @@ function QueueRow({
           &middot; {formatDate(item.submitted_at)}
           {item.duration_ms ? ` · ${formatDuration(item.duration_ms)}` : ""}
         </p>
+        <OriginalFileLine files={files} />
         {item.escalation_note && (
           <p className="text-[13px] text-ink-70 mt-1.5">{item.escalation_note}</p>
         )}
