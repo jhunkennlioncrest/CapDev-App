@@ -200,6 +200,29 @@ stable
 security invoker
 set search_path to 'public'
 as $function$
+  with auth_t as (
+    -- The SAME authoritative transcript compute_call_identity() picks, by the
+    -- same ordering. Scanning every available transcript would let an older,
+    -- superseded one veto a call whose current transcript is clean -- the
+    -- conflict check has to look at the transcript the identity is actually
+    -- derived from, or it is answering a different question.
+    select tr.speakers
+      from public.transcript tr
+     where tr.call_id = p_call_id
+       and tr.archived_at is null
+       and tr.status = 'available'
+       and jsonb_typeof(tr.speakers) = 'object'
+     order by case tr.kind when 'reviewed' then 0 when 'manual' then 1 else 2 end,
+              tr.version_no desc
+     limit 1
+  ),
+  a as (
+    select btrim((t.speakers -> k) ->> 'name') as author_name
+      from auth_t t
+      cross join lateral jsonb_object_keys(t.speakers) k
+     where lower(btrim(coalesce((t.speakers -> k) ->> 'role', ''))) = 'author'
+       and nullif(btrim(coalesce((t.speakers -> k) ->> 'name', '')), '') is not null
+  )
   select coalesce(
     (select 'recorded conflict: ' || x.reason
        from public.call_identity_cleanup_exclusion x
@@ -207,28 +230,18 @@ as $function$
     (select 'an Author is named the same as the call''s representative ('
               || btrim(c.agent_name) || ')'
        from public.call c
-       join public.transcript tr
-         on tr.call_id = c.id and tr.archived_at is null and tr.status = 'available'
-        and jsonb_typeof(tr.speakers) = 'object'
-       cross join lateral jsonb_object_keys(tr.speakers) k
+       cross join a
       where c.id = p_call_id
-        and lower(btrim(coalesce((tr.speakers -> k) ->> 'role', ''))) = 'author'
-        and lower(btrim(coalesce((tr.speakers -> k) ->> 'name', '')))
-            = lower(btrim(coalesce(c.agent_name, '')))
         and coalesce(btrim(c.agent_name), '') <> ''
+        and lower(btrim(a.author_name)) = lower(btrim(c.agent_name))
       limit 1),
     (select 'an Author name is a placeholder rather than a person ('
-              || btrim((tr.speakers -> k) ->> 'name') || ')'
-       from public.transcript tr
-       cross join lateral jsonb_object_keys(tr.speakers) k
-      where tr.call_id = p_call_id and tr.archived_at is null
-        and tr.status = 'available' and jsonb_typeof(tr.speakers) = 'object'
-        and lower(btrim(coalesce((tr.speakers -> k) ->> 'role', ''))) = 'author'
-        and (lower(btrim(coalesce((tr.speakers -> k) ->> 'name', '')))
-               = any (array['author','admin','unknown','n/a','na','guest','speaker',
-                            'rep','representative','customer','client'])
-             or lower(btrim(coalesce((tr.speakers -> k) ->> 'name', '')))
-                ~ '^speaker[[:space:]]*[0-9]+$')
+              || a.author_name || ')'
+       from a
+      where lower(btrim(a.author_name))
+              = any (array['author','admin','unknown','n/a','na','guest','speaker',
+                           'rep','representative','customer','client'])
+         or lower(btrim(a.author_name)) ~ '^speaker[[:space:]]*[0-9]+$'
       limit 1)
   );
 $function$;
