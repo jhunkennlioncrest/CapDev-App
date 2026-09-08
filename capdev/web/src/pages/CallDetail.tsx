@@ -23,7 +23,7 @@ import {
   type ParseResult,
   type Segment,
 } from "@/lib/transcript";
-import { formatDuration, formatDate } from "@/lib/format";
+import { formatDuration, formatCallDate } from "@/lib/format";
 import { EvaluationPanel } from "@/pages/EvaluationPanel";
 import { workspaceFor } from "@/lib/evaluation";
 import { startDirectCalibration } from "@/lib/workflow";
@@ -414,7 +414,10 @@ export function CallDetail({ callId, session, onBack }: Props): JSX.Element {
               ? `Reference: ${call.customer_ref}`
               : "No meeting ID"}{" "}
           &middot;{" "}
-          {formatDate(call.occurred_at ?? call.created_at)} &middot;{" "}
+          {/* The call's own date, in the business timezone — the same value and
+              the same rule as the date segment of the title directly above.
+              Reading it in the viewer's zone put the two a day apart (0071). */}
+          {formatCallDate(call.occurred_at ?? call.created_at)} &middot;{" "}
           <span className="font-mono">{formatDuration(call.duration_ms)}</span>
         </p>
       </header>

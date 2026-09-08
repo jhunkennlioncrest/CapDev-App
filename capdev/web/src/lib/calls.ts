@@ -1,5 +1,5 @@
 import { supabase } from "./supabase";
-import { formatDate } from "./format";
+import { formatCallDate } from "./format";
 import type { CallListItem, UploadDraft } from "./types";
 
 export type UploadStage =
@@ -72,6 +72,11 @@ export const AUTHOR_PENDING = "Author pending";
  * upload date \u2014 created_at is a database default and does not exist on the
  * client before the insert.
  *
+ * The date is rendered in the business timezone (0071), not the viewer's, and
+ * by the same rule the database uses. The preview shown here and the title the
+ * database derives on submission have to be the same string, or the identity
+ * guard reads its own output as somebody else's and stops updating the title.
+ *
  * This is a label, never an identifier. Recordings are retrieved by
  * storage_path and recording.id, and nothing here touches either.
  */
@@ -82,7 +87,7 @@ export function buildCallTitle(draft: {
   const rep = draft.agentName.trim() || REP_NOT_SET;
   const when = draft.occurredAt ? new Date(draft.occurredAt) : new Date();
   const safe = Number.isNaN(when.getTime()) ? new Date() : when;
-  return [rep, AUTHOR_PENDING, formatDate(safe.toISOString())].join(TITLE_SEPARATOR);
+  return [rep, AUTHOR_PENDING, formatCallDate(safe.toISOString())].join(TITLE_SEPARATOR);
 }
 
 /**
