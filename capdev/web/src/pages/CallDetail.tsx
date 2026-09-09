@@ -25,6 +25,7 @@ import {
 } from "@/lib/transcript";
 import { formatDuration, formatCallDate } from "@/lib/format";
 import { OriginalFileLine } from "@/components/OriginalFileLine";
+import { CallRiskRecord } from "@/components/RiskRecordList";
 import { getRecordingFiles, type CallRecordingFiles } from "@/lib/recordingFiles";
 import { EvaluationPanel } from "@/pages/EvaluationPanel";
 import { workspaceFor } from "@/lib/evaluation";
@@ -437,6 +438,14 @@ export function CallDetail({ callId, session, onBack, onEvaluationSubmitted }: P
 
       <div className="pt-3 pb-1">
         <CallTimeline status={call.workflow_status} callId={call.id} />
+      </div>
+
+      {/* The permanent risk record. Previously readable only from inside the
+          calibration form, which meant it vanished the moment that form was
+          closed (0074). Read-only here; raising and determining stay in the
+          evaluation. */}
+      <div className="mt-4">
+        <CallRiskRecord callId={callId} />
       </div>
 
       {error && <p className="mt-5 text-[13px] text-[#AC3A2A]">{error}</p>}

@@ -19,6 +19,7 @@ import { formatDate, formatDuration } from "@/lib/format";
 import { OriginalFileLine } from "@/components/OriginalFileLine";
 import { getRecordingFiles, type CallRecordingFiles } from "@/lib/recordingFiles";
 import { CallTimeline } from "@/components/CallTimeline";
+import { CallRiskRecord } from "@/components/RiskRecordList";
 import { MOMENT_TYPES } from "@/lib/moments";
 import type { Session } from "@/lib/types";
 
@@ -189,6 +190,13 @@ export function QualityRecord({ callId, session, onBack, onOpenCall }: Props): J
       </div>
 
       {error && <p className="mt-4 text-[13px] text-[#AC3A2A]">{error}</p>}
+
+      {/* The permanent risk record travels with the completed evaluation.
+          A finished quality record that cannot show why a call was escalated
+          is not a record of it (0074). */}
+      <div className="mt-5">
+        <CallRiskRecord callId={callId} />
+      </div>
 
       {record.under_revision && (
         <p className="mt-4 text-[13px] text-[#96690A]">

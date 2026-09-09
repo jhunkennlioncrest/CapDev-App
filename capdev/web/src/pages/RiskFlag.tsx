@@ -8,6 +8,7 @@ import {
   type RiskRecord,
 } from "@/lib/risk";
 import type { Session } from "@/lib/types";
+import { CATEGORY_LABEL, RiskRecordDetail } from "@/components/RiskRecordList";
 
 /**
  * Raising and determining risks on one call.
@@ -226,10 +227,6 @@ export function RiskFlag({
   );
 }
 
-const CATEGORY_LABEL = Object.fromEntries(
-  RISK_CATEGORIES.map((c) => [c.value, c.label]),
-) as Record<string, string>;
-
 function RiskRow({
   risk,
   canDetermine,
@@ -271,53 +268,16 @@ function RiskRow({
     }
   }
 
-  const label =
-    RISK_CATEGORIES.find((c) => c.value === risk.category)?.label ?? risk.category;
-
   return (
     <li className="py-2.5">
-      <div className="flex items-baseline gap-2.5 flex-wrap">
-        <span className="text-[12px] border border-rule rounded-full px-2 py-0.5">
-          {label}
-        </span>
-        <span className="text-[12px] text-ink-45">
-          Raised by {risk.identified_by_role}
-          {/* Determination is an act by a second participant, not a second
-              risk. Showing both on one row is the whole point. */}
-          {risk.determined_by && ` · Determined by ${risk.determined_by}`}
-        </span>
-        {risk.requires_escalation && (
-          <span className="text-[11px] text-[#AC3A2A] border border-[#AC3A2A] rounded-full px-2 py-0.5">
-            Escalate
-          </span>
-        )}
-        <span className="text-[11px] text-ink-45 ml-auto">{risk.status}</span>
-      </div>
+      {/* The record itself, rendered by the same component every read-only
+          surface uses, so what a trainer sees here and what appears on Call
+          Detail afterwards cannot drift apart. */}
+      <RiskRecordDetail risk={risk} />
 
-      <p className="text-[13px] mt-1">{risk.note}</p>
-
-      {/* The determination sits beside the observation, never replacing it. */}
-      {risk.determination ? (
-        <>
-          <p className="text-[12.5px] text-ink-70 mt-1">
-            <span className="font-semibold">
-              {risk.determination === "not_a_risk"
-                ? "Not a risk"
-                : risk.requires_escalation
-                  ? "Escalation required"
-                  : "Valid risk"}
-            </span>
-            {risk.determination_note && ` — ${risk.determination_note}`}
-          </p>
-          {/* Both classifications, so a disagreement reads as one. */}
-          {risk.was_reclassified && risk.original_category && (
-            <p className="text-[11.5px] text-ink-45 mt-0.5">
-              Raw QA called this{" "}
-              {CATEGORY_LABEL[risk.original_category] ?? risk.original_category}
-            </p>
-          )}
-        </>
-      ) : canDetermine && !locked ? (
+      {/* Everything below is the act of determining — mutation and permission
+          logic, which stays in this component. */}
+      {risk.determination ? null : canDetermine && !locked ? (
         deciding ? (
           <div className="mt-2">
             {/* Reclassifying is allowed; the raiser's category is kept. */}
