@@ -95,6 +95,15 @@ export function EvaluationPanel({
     null,
   );
   const remarkTimers = useRef<Record<string, number>>({});
+  /**
+   * What each pending remark timer is about to write.
+   *
+   * The timer id alone is not enough to finish the work early: flushing has to
+   * know the value and the prose the debounce was holding. Entries are removed
+   * the moment their save succeeds, so this only ever holds writes that have
+   * not reached the database.
+   */
+  const pendingRemarks = useRef<Record<string, { value: ScoreValue | null; text: string }>>({});
   const [scoreIds, setScoreIds] = useState<Record<string, string>>({});
   const [evidence, setEvidence] = useState<Record<string, Evidence[]>>({});
   const [clipFor, setClipFor] = useState<Criterion | null>(null);
@@ -229,12 +238,49 @@ export function EvaluationPanel({
   function setRemark(criterion: Criterion, text: string): void {
     if (!evaluation || locked) return;
     setRemarks((r) => ({ ...r, [criterion.id]: text }));
+    const evaluationId = evaluation.id;
+    const payload = { value: values[criterion.id] ?? null, text };
+    pendingRemarks.current[criterion.id] = payload;
     window.clearTimeout(remarkTimers.current[criterion.id]);
     remarkTimers.current[criterion.id] = window.setTimeout(() => {
-      void saveScore(evaluation.id, criterion.id, values[criterion.id] ?? null, text)
-        .then(() => setSavedAt(new Date()))
+      void saveScore(evaluationId, criterion.id, payload.value, payload.text)
+        .then(() => {
+          // Only stop tracking it once it is actually written. If the same
+          // criterion was typed into again while this was in flight, that
+          // newer payload is a different object and must survive.
+          if (pendingRemarks.current[criterion.id] === payload) {
+            delete pendingRemarks.current[criterion.id];
+          }
+          setSavedAt(new Date());
+        })
         .catch((err) => setError(err instanceof Error ? err.message : String(err)));
     }, 800);
+  }
+
+  /**
+   * Writes every debounced remark that has not reached the database yet.
+   *
+   * Remarks save 800 ms after the last keystroke. Submitting inside that window
+   * left the timer armed: it fired against an evaluation that was by then
+   * submitted, guard_submitted_evaluation refused the write, and the last thing
+   * the reviewer typed was lost. Now nothing is submitted until these land.
+   *
+   * Throws on the first failure, deliberately. A remark that could not be saved
+   * is a reason not to submit, not a warning to scroll past.
+   */
+  async function flushRemarks(evaluationId: string): Promise<void> {
+    for (const id of Object.keys(remarkTimers.current)) {
+      window.clearTimeout(remarkTimers.current[id]);
+      delete remarkTimers.current[id];
+    }
+    const outstanding = Object.entries(pendingRemarks.current);
+    for (const [criterionId, payload] of outstanding) {
+      await saveScore(evaluationId, criterionId, payload.value, payload.text);
+      if (pendingRemarks.current[criterionId] === payload) {
+        delete pendingRemarks.current[criterionId];
+      }
+    }
+    if (outstanding.length > 0) setSavedAt(new Date());
   }
 
   async function patch(p: Parameters<typeof updateEvaluation>[1]): Promise<void> {
@@ -255,6 +301,9 @@ export function EvaluationPanel({
     setSubmitting(true);
     setError(null);
     try {
+      // Everything the reviewer typed reaches the database before the
+      // evaluation is frozen. If any of it fails, we do not submit.
+      await flushRemarks(evaluation.id);
       await submitEvaluation(evaluation.id);
       await sync(evaluation.id);
     } catch (err) {
