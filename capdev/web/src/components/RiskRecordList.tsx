@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import { RISK_CATEGORIES, risksForCall, type RiskRecord } from "@/lib/risk";
+import { RISK_CATEGORIES, risksForCall, type RiskContext, type RiskRecord } from "@/lib/risk";
 import { formatDate } from "@/lib/format";
 
 /**
@@ -170,5 +170,56 @@ export function CallRiskRecord({ callId }: { callId: string }): JSX.Element | nu
       </p>
       <RiskRecordList risks={risks} />
     </section>
+  );
+}
+
+/**
+ * The compact list badge: category first, state second (0074).
+ *
+ *   Financial · Escalation      one record, escalated
+ *   Financial · Risk            one record
+ *   Financial · 2 risks         several, all the same category
+ *   2 risks · Escalation        several that disagree — no single true category
+ *
+ * A category is shown only when every remaining record agrees on it. Where they
+ * disagree the count stands alone: naming one of them would tell the reader
+ * something the data does not support.
+ */
+export function riskContextLabel(ctx: RiskContext): string {
+  const escalated = ctx.requires_escalation;
+  if (ctx.count === 1) {
+    const label = ctx.category ? categoryLabel(ctx.category) : "Risk";
+    return ctx.category ? `${label} · ${escalated ? "Escalation" : "Risk"}` : label;
+  }
+  const count = `${ctx.count} risks`;
+  const head = ctx.category ? `${categoryLabel(ctx.category)} · ${count}` : count;
+  return escalated ? `${head} · Escalation` : head;
+}
+
+/**
+ * Renders nothing when the call has no readable, undismissed risk — the same
+ * reasoning as CallRiskRecord: RLS makes "none" and "not visible to you"
+ * indistinguishable, so neither may be asserted.
+ */
+export function RiskContextBadge({
+  context,
+  className,
+}: {
+  context: RiskContext | undefined;
+  className?: string;
+}): JSX.Element | null {
+  if (!context) return null;
+  const escalated = context.requires_escalation;
+  return (
+    <span
+      className={
+        className ??
+        `text-[11px] rounded-full px-2 py-0.5 border ${
+          escalated ? "border-[#AC3A2A] text-[#AC3A2A]" : "border-rule text-ink-45"
+        }`
+      }
+    >
+      {riskContextLabel(context)}
+    </span>
   );
 }

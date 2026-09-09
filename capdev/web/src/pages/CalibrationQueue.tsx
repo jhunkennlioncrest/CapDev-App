@@ -4,6 +4,8 @@ import { startDirectCalibration } from "@/lib/workflow";
 import { formatDate, formatDuration } from "@/lib/format";
 import { OriginalFileLine } from "@/components/OriginalFileLine";
 import { getRecordingFiles, type CallRecordingFiles } from "@/lib/recordingFiles";
+import { RiskContextBadge } from "@/components/RiskRecordList";
+import { riskContextFor, type RiskContext } from "@/lib/risk";
 
 interface Props {
   onOpenCall: (id: string) => void;
@@ -22,6 +24,7 @@ interface Props {
 export function CalibrationQueue({ onOpenCall, onBack }: Props): JSX.Element {
   const [items, setItems] = useState<QueueItem[] | null>(null);
   const [files, setFiles] = useState<Map<string, CallRecordingFiles>>(new Map());
+  const [risks, setRisks] = useState<Map<string, RiskContext>>(new Map());
   const [error, setError] = useState<string | null>(null);
   const [starting, setStarting] = useState<string | null>(null);
 
@@ -29,7 +32,10 @@ export function CalibrationQueue({ onOpenCall, onBack }: Props): JSX.Element {
     try {
       const list = await getQueue();
       setItems(list);
-      setFiles(await getRecordingFiles(list.map((i) => i.call_id)));
+      const ids = list.map((i) => i.call_id);
+      const [f, r] = await Promise.all([getRecordingFiles(ids), riskContextFor(ids)]);
+      setFiles(f);
+      setRisks(r);
       setError(null);
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
@@ -129,11 +135,10 @@ export function CalibrationQueue({ onOpenCall, onBack }: Props): JSX.Element {
                       >
                         {item.source === "direct" ? "Direct" : "Raw QA"}
                       </span>
-                      {item.is_high_risk && (
-                        <span className="text-[11px] font-medium border border-[#AC3A2A] text-[#AC3A2A] rounded-full px-2 py-0.5">
-                          Escalation
-                        </span>
-                      )}
+                      {/* The authoritative record decides the wording:
+                          category first, escalation only when the trainer
+                          actually required it. */}
+                      <RiskContextBadge context={risks.get(item.call_id)} />
                       {item.status === "in_progress" && (
                         <span className="text-[11px] text-ink-45">in progress</span>
                       )}

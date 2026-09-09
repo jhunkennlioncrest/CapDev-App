@@ -7,6 +7,8 @@ import { listPlaylists, getPlaylistContents, type PlaylistSummary, type Playlist
 import { formatDate, formatDuration } from "@/lib/format";
 import { OriginalFileLine } from "@/components/OriginalFileLine";
 import { getRecordingFiles, type CallRecordingFiles } from "@/lib/recordingFiles";
+import { RiskContextBadge } from "@/components/RiskRecordList";
+import { riskContextFor, type RiskContext } from "@/lib/risk";
 import type { Session } from "@/lib/types";
 
 type Tab = "todo" | "submitted";
@@ -38,6 +40,7 @@ export function RawQAWorkspace({ session, onOpenCall, initialTab = "todo" }: Pro
   // Filenames for every call on screen, in both tabs. Accumulated rather
   // than replaced: a playlist expanded later adds its calls to the map.
   const [files, setFiles] = useState<Map<string, CallRecordingFiles>>(new Map());
+  const [risks, setRisks] = useState<Map<string, RiskContext>>(new Map());
   const [uploadOpen, setUploadOpen] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
@@ -62,13 +65,24 @@ export function RawQAWorkspace({ session, onOpenCall, initialTab = "todo" }: Pro
 
   /** Adds filenames for call ids not already held, keeping what is there. */
   const mergeFiles = useCallback(async (callIds: string[]): Promise<void> => {
-    const fetched = await getRecordingFiles(callIds);
-    if (fetched.size === 0) return;
-    setFiles((prev) => {
-      const next = new Map(prev);
-      fetched.forEach((v, k) => next.set(k, v));
-      return next;
-    });
+    const [fetched, fetchedRisks] = await Promise.all([
+      getRecordingFiles(callIds),
+      riskContextFor(callIds),
+    ]);
+    if (fetched.size > 0) {
+      setFiles((prev) => {
+        const next = new Map(prev);
+        fetched.forEach((v, k) => next.set(k, v));
+        return next;
+      });
+    }
+    if (fetchedRisks.size > 0) {
+      setRisks((prev) => {
+        const next = new Map(prev);
+        fetchedRisks.forEach((v, k) => next.set(k, v));
+        return next;
+      });
+    }
   }, []);
 
   useEffect(() => {
@@ -315,9 +329,11 @@ export function RawQAWorkspace({ session, onOpenCall, initialTab = "todo" }: Pro
                       >
                         <span className="text-[13.5px] min-w-0">
                           {c.call_title}
-                          {c.is_high_risk && (
-                            <span className="text-[11px] text-[#AC3A2A] ml-2">escalation</span>
-                          )}
+                          {/* Category first, from the authoritative risk
+                              record — is_high_risk only ever said "yes". */}
+                          <span className="ml-2 inline-block">
+                            <RiskContextBadge context={risks.get(c.call_id)} />
+                          </span>
                           <OriginalFileLine files={files.get(c.call_id)} />
                         </span>
                         <span className="flex items-center gap-3 shrink-0">

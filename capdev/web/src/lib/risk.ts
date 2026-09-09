@@ -89,6 +89,86 @@ export async function risksForCall(callId: string): Promise<RiskRecord[]> {
   return (data ?? []) as RiskRecord[];
 }
 
+/**
+ * Compact risk context for a list row (0074).
+ *
+ * A list says whether a call carries a risk and what kind. It does not carry
+ * the narrative — that belongs on Call Detail and the completed record.
+ *
+ * The rule for a call with more than one record is deliberate, because picking
+ * one arbitrarily would misreport the call:
+ *
+ *   * Dismissed records are excluded. `not_a_risk` is a trainer's judged "no";
+ *     badging a row on it would say the opposite of what was decided. Their
+ *     history stays visible in the full record.
+ *   * Nothing left  -> no badge at all.
+ *   * One left      -> that record's category.
+ *   * Several left  -> a category only when every one of them agrees. Where
+ *     they disagree there is no single true category, so the count is shown
+ *     alone rather than promoting whichever row sorted first.
+ *   * Escalation is true when ANY remaining record requires it. Escalation is a
+ *     property of the call's risk set, not of one row inside it.
+ */
+export interface RiskContext {
+  call_id: string;
+  /** The shared category, or null when the remaining records disagree. */
+  category: RiskCategory | null;
+  /** How many live, undismissed records the call carries. */
+  count: number;
+  requires_escalation: boolean;
+}
+
+interface RiskContextRow {
+  call_id: string;
+  category: RiskCategory;
+  requires_escalation: boolean;
+  determination: "valid" | "not_a_risk" | null;
+}
+
+/**
+ * Risk context for calls already on screen, in one round trip.
+ *
+ * Reads only the four columns the badge needs — never the notes, which have no
+ * business travelling with a 200-row list.
+ */
+export async function riskContextFor(callIds: string[]): Promise<Map<string, RiskContext>> {
+  const ids = Array.from(new Set(callIds.filter(Boolean)));
+  if (ids.length === 0) return new Map();
+
+  const { data, error } = await supabase
+    .from("v_call_risks")
+    .select("call_id, category, requires_escalation, determination")
+    .in("call_id", ids);
+
+  // A missing badge is a smaller problem than a list that fails to load. RLS
+  // also filters rows here, which is why an empty result is never rendered as
+  // "no risks" anywhere.
+  if (error) return new Map();
+
+  const byCall = new Map<string, RiskContextRow[]>();
+  for (const row of (data ?? []) as RiskContextRow[]) {
+    if (row.determination === "not_a_risk") continue;
+    const list = byCall.get(row.call_id) ?? [];
+    list.push(row);
+    byCall.set(row.call_id, list);
+  }
+
+  const out = new Map<string, RiskContext>();
+  for (const [callId, rows] of byCall) {
+    const first = rows[0];
+    if (!first) continue;
+    const categories = new Set(rows.map((r) => r.category));
+    out.set(callId, {
+      call_id: callId,
+      // A category only when every remaining record agrees on one.
+      category: categories.size === 1 ? first.category : null,
+      count: rows.length,
+      requires_escalation: rows.some((r) => r.requires_escalation),
+    });
+  }
+  return out;
+}
+
 /** Raising a risk. Available to reviewers observing and trainers calibrating. */
 export async function raiseRisk(params: {
   callId: string;
