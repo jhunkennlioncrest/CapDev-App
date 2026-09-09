@@ -51,12 +51,17 @@ interface Props {
   segments: Segment[];
   /** Plays a span in the page's audio player, stopping at the end. */
   onPlayClip?: (startMs: number, endMs: number) => void;
-  /** Solo mode: offered after a raw submit when the same person may calibrate. */
-  onStartCalibration?: () => void;
-  canCalibrate?: boolean;
   /** "raw" = Workspace A: observe only, no determination, no score shown. */
   mode?: "raw" | "calibrated";
   onClose: () => void;
+  /**
+   * Fired once, after a submission has committed and been re-read cleanly.
+   *
+   * A finished evaluation is not a task. Leaving the reviewer inside a locked
+   * rubric that still looks like a form is the reason this exists; the host
+   * decides where they land.
+   */
+  onSubmitted?: (kind: "raw" | "calibrated") => void;
 }
 
 /**
@@ -75,9 +80,8 @@ export function EvaluationPanel({
   segments,
   onPlayClip,
   mode = "calibrated",
-  onStartCalibration,
-  canCalibrate = false,
   onClose,
+  onSubmitted,
 }: Props): JSX.Element {
   const [rubric, setRubric] = useState<RubricVersion | null>(null);
   const [evaluation, setEvaluation] = useState<Evaluation | null>(null);
@@ -261,9 +265,10 @@ export function EvaluationPanel({
    * Writes every debounced remark that has not reached the database yet.
    *
    * Remarks save 800 ms after the last keystroke. Submitting inside that window
-   * left the timer armed: it fired against an evaluation that was by then
-   * submitted, guard_submitted_evaluation refused the write, and the last thing
-   * the reviewer typed was lost. Now nothing is submitted until these land.
+   * used to leave the timer armed: it fired against an evaluation that was by
+   * then submitted, guard_submitted_evaluation refused the write, and the last
+   * thing the reviewer typed was silently lost. Now nothing is submitted until
+   * these have landed.
    *
    * Throws on the first failure, deliberately. A remark that could not be saved
    * is a reason not to submit, not a warning to scroll past.
@@ -306,7 +311,16 @@ export function EvaluationPanel({
       await flushRemarks(evaluation.id);
       await submitEvaluation(evaluation.id);
       await sync(evaluation.id);
+      // Only now, with the submit committed and re-read without throwing.
+      // Every trigger this fires — identity derivation, playlist filing,
+      // queue insertion, call status, risk sync — runs inside the same
+      // transaction as the update, so there is nothing left in flight to
+      // wait for and no reason to delay the hand-off.
+      onSubmitted?.(isRaw ? "raw" : "calibrated");
     } catch (err) {
+      // Stay exactly where we are. A submission that failed, or a remark that
+      // could not be written, is something the person needs to see and act on
+      // — navigating away would hide it.
       setError(err instanceof Error ? err.message : String(err));
     } finally {
       setSubmitting(false);
@@ -586,21 +600,12 @@ export function EvaluationPanel({
         </section>
       )}
 
-      {locked && isRaw && canCalibrate && onStartCalibration && (
-        <div className="border border-rule-soft rounded bg-card px-5 py-4 mb-5">
-          <p className="font-display text-lg">Raw observations submitted</p>
-          <p className="text-[13px] text-ink-70 mt-1">
-            Everything you recorded &mdash; answers, notes and quotes &mdash; carries
-            straight into calibration. Nothing needs re-entering.
-          </p>
-          <button
-            onClick={onStartCalibration}
-            className="mt-3 bg-ink text-ground border border-ink rounded px-4 py-2 text-sm font-medium hover:opacity-85"
-          >
-            Start calibration
-          </button>
-        </div>
-      )}
+      {/* A "Start calibration" card used to sit here, offered to a reviewer
+          who could also calibrate. It only existed because submitting left
+          them stranded inside the finished evaluation. Raw QA and Calibration
+          are separate workflows: submitting returns the reviewer to their own
+          submitted work, and calibrating this call is entered from the
+          Calibration workspace or this call's "Calibrate directly". (0074) */}
 
       {clipFor && (
         <ClipDialog
@@ -696,9 +701,6 @@ function CriterionRow({
   onRemark: (t: string) => void;
   onCite: () => void;
   onPlayClip?: (startMs: number, endMs: number) => void;
-  /** Solo mode: offered after a raw submit when the same person may calibrate. */
-  onStartCalibration?: () => void;
-  canCalibrate?: boolean;
   onRemoveEvidence: (id: string) => void;
 }): JSX.Element {
   // Evidence carries its own call, so the mapping comes from there.

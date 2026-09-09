@@ -14,6 +14,12 @@ type Tab = "todo" | "submitted";
 interface Props {
   session: Session;
   onOpenCall: (id: string) => void;
+  /**
+   * Which tab to open on. Read once, at mount — this workspace unmounts
+   * while a call is open, so returning from a submission remounts it and
+   * lands on the submitted work (0074).
+   */
+  initialTab?: Tab;
 }
 
 /**
@@ -23,8 +29,8 @@ interface Props {
  * question ("what should I do now"), and playlists are shown as what they are:
  * completed work, already filed. The reviewer never creates or manages one.
  */
-export function RawQAWorkspace({ session, onOpenCall }: Props): JSX.Element {
-  const [tab, setTab] = useState<Tab>("todo");
+export function RawQAWorkspace({ session, onOpenCall, initialTab = "todo" }: Props): JSX.Element {
+  const [tab, setTab] = useState<Tab>(initialTab);
   const [todo, setTodo] = useState<RawWorklistItem[]>([]);
   const [playlists, setPlaylists] = useState<PlaylistSummary[]>([]);
   const [expanded, setExpanded] = useState<string | null>(null);

@@ -35,9 +35,14 @@ interface Props {
   callId: string;
   session: Session;
   onBack: () => void;
+  /**
+   * A submission finished and committed. The call is done with this person
+   * for now, so the host closes it and sends them to their own queue (0074).
+   */
+  onEvaluationSubmitted?: (kind: "raw" | "calibrated") => void;
 }
 
-export function CallDetail({ callId, session, onBack }: Props): JSX.Element {
+export function CallDetail({ callId, session, onBack, onEvaluationSubmitted }: Props): JSX.Element {
   const [call, setCall] = useState<CallListItem | null>(null);
   const [files, setFiles] = useState<CallRecordingFiles | undefined>(undefined);
   const [transcript, setTranscript] = useState<StoredTranscript | null>(null);
@@ -502,9 +507,11 @@ export function CallDetail({ callId, session, onBack }: Props): JSX.Element {
             segments={segments}
             onPlayClip={playClip}
             mode={workspace === "raw" && !forceCalibrate ? "raw" : "calibrated"}
-            canCalibrate={session.permissions.includes("calibration.perform")}
-            onStartCalibration={() => void beginDirect()}
             onClose={() => setEvaluating(false)}
+            onSubmitted={(kind) => {
+              setEvaluating(false);
+              onEvaluationSubmitted?.(kind);
+            }}
           />
         </div>
       )}
