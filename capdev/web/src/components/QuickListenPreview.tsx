@@ -9,10 +9,12 @@ import { formatDuration } from "@/lib/format";
  * before any of the machinery behind it is built. The Generate button moves
  * through local state so the finished layout can be seen; reloading resets it.
  *
- * Deliberately a hairline-separated cluster rather than a card. Quick Listen is
- * an optional shortcut, not a second feature competing with the player above
- * it, and an earlier draft that boxed it in with a large dashed player area
- * made it look like the main event.
+ * Contained as a small card of its own, and everything it offers stays inside
+ * that card. An earlier draft floated the Generate button out to the right edge,
+ * where it lined up with the page-level actions (Delete, Record observations,
+ * Review & correct) and read as a fourth thing to do with the call rather than
+ * as an option belonging to the recording above it. The card is deliberately
+ * tight — compact padding, one helper line — so it stays an aside.
  *
  * Two things here are real design decisions, not placeholder:
  *
@@ -49,12 +51,12 @@ export function QuickListenPreview({
   const minutes = Math.round((durationMs ?? 0) / 60000);
   // Roughly a sixth of the original, which is about what a 7-10 minute digest
   // of a long call works out to. ILLUSTRATIVE ONLY — no audio exists, and the
-  // real duration will come from the generated file. Shown so the finished row
-  // can be judged at a realistic width.
+  // real duration will come from the generated file. Shown so the finished
+  // card can be judged at a realistic width.
   const mockQuickMs = Math.round((durationMs ?? 0) / 6);
 
   return (
-    <section className="mt-3 pt-3 border-t border-rule-soft">
+    <section className="mt-3 border border-rule-soft rounded bg-card px-4 py-3">
       <div className="flex items-center gap-2 flex-wrap">
         <span className="font-mono text-[10px] tracking-[0.14em] uppercase text-ink-45">
           AI Quick Listen
@@ -64,55 +66,52 @@ export function QuickListenPreview({
         </span>
       </div>
 
-      <div className="flex items-center gap-3 flex-wrap mt-1.5">
-        {state === "idle" && (
-          <>
-            <p className="text-[13px] text-ink-70 flex-1 min-w-[16rem]">
-              This call is {minutes} minutes long. Create a shorter QA-focused
-              version with the important conversations, decisions, risks and
-              commitments.
-            </p>
-            <button
-              onClick={() => {
-                // Purely visual. No request is made and nothing is stored.
-                setState("generating");
-                window.setTimeout(() => setState("ready"), 1200);
-              }}
-              className="border border-ink bg-ink text-ground rounded px-3.5 py-1.5 text-[13px] font-medium hover:opacity-85 shrink-0"
-            >
-              Generate Quick Listen
-            </button>
-          </>
-        )}
-
-        {state === "generating" && (
-          <p className="text-[13px] text-ink-70">
-            Building Quick Listen&hellip; you can leave this page and come back.
+      {state === "idle" && (
+        <>
+          <p className="text-[13px] text-ink-70 mt-1.5">
+            This {minutes}-minute call can be condensed into a shorter
+            QA-focused listen.
           </p>
-        )}
+          <button
+            onClick={() => {
+              // Purely visual. No request is made and nothing is stored.
+              setState("generating");
+              window.setTimeout(() => setState("ready"), 1200);
+            }}
+            className="mt-2.5 border border-ink bg-ink text-ground rounded px-3.5 py-1.5 text-[13px] font-medium hover:opacity-85"
+          >
+            Generate Quick Listen
+          </button>
+        </>
+      )}
 
-        {state === "ready" && (
-          <>
-            <p className="text-[13px] text-ink-70 flex-1 min-w-[12rem]">
-              <span className="font-mono">{formatDuration(mockQuickMs)}</span>{" "}
-              condensed from{" "}
-              <span className="font-mono">{formatDuration(durationMs)}</span>
-            </p>
-            {/* Not a button. No condensed audio exists yet, and a control that
-                looks playable and does nothing reads as broken rather than as a
-                preview. Inert until Phase 4 gives it something to play. */}
-            <span
-              aria-disabled="true"
-              className="border border-dashed border-rule text-ink-45 bg-ground-2 rounded px-3.5 py-1.5 text-[13px] cursor-not-allowed select-none shrink-0"
-            >
-              Play Quick Listen &middot; preview only
-            </span>
-          </>
-        )}
-      </div>
+      {state === "generating" && (
+        <p className="text-[13px] text-ink-70 mt-1.5">
+          Building Quick Listen&hellip; you can leave this page and come back.
+        </p>
+      )}
+
+      {state === "ready" && (
+        <>
+          <p className="text-[13px] text-ink-70 mt-1.5">
+            <span className="font-mono">{formatDuration(mockQuickMs)}</span>{" "}
+            condensed from{" "}
+            <span className="font-mono">{formatDuration(durationMs)}</span>
+          </p>
+          {/* Not a button. No condensed audio exists yet, and a control that
+              looks playable and does nothing reads as broken rather than as a
+              preview. Inert until Phase 4 gives it something to play. */}
+          <span
+            aria-disabled="true"
+            className="mt-2.5 inline-block border border-dashed border-rule text-ink-45 bg-ground-2 rounded px-3.5 py-1.5 text-[13px] cursor-not-allowed select-none"
+          >
+            Play Quick Listen &middot; Preview only
+          </span>
+        </>
+      )}
 
       {/* Said once, quietly, and never absent. */}
-      <p className="text-[11.5px] text-ink-45 mt-1.5">
+      <p className="text-[11.5px] text-ink-45 mt-2">
         AI-condensed review aid &middot; Original remains source of truth.
         {state !== "idle" && (
           <button
