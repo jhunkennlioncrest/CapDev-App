@@ -26,6 +26,7 @@ import {
 import { formatDuration, formatCallDate } from "@/lib/format";
 import { OriginalFileLine } from "@/components/OriginalFileLine";
 import { CallRiskRecord } from "@/components/RiskRecordList";
+import { QuickListenPreview } from "@/components/QuickListenPreview";
 import { getRecordingFiles, type CallRecordingFiles } from "@/lib/recordingFiles";
 import { EvaluationPanel } from "@/pages/EvaluationPanel";
 import { workspaceFor } from "@/lib/evaluation";
@@ -477,6 +478,13 @@ export function CallDetail({ callId, session, onBack, onEvaluationSubmitted }: P
       ) : (
         <p className="mt-5 text-[13px] text-[#96690A]">No audio attached to this call.</p>
       )}
+
+      {/* 0075 Phase 0 — presentation preview only. Renders nothing at all for
+          calls under 30 minutes, and generates nothing when pressed. Placed
+          under the player rather than inside its sticky container: it is an
+          occasional choice, not something to carry down the page while the
+          reviewer scrolls the rubric. */}
+      {audioUrl && <QuickListenPreview durationMs={call.duration_ms} />}
 
       {job && (job.status === "running" || job.status === "queued") && (
         <div className="mt-6 border border-rule-soft rounded bg-card px-5 py-4">
