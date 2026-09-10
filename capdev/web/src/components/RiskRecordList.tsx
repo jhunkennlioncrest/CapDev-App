@@ -32,6 +32,42 @@ export function categoryLabel(category: string): string {
  * trainer decided, and where it stands now. Every field is shown when present;
  * nothing is summarised away.
  */
+type DeterminationState = "awaiting" | "valid" | "escalation" | "not_a_risk";
+
+/**
+ * The state a reader can actually trust.
+ *
+ * risk_record has two independent notions of progress: `determination`, which
+ * is the trainer's judgement, and `status`, which is lifecycle resolution. They
+ * are genuinely separate concepts — a risk can be judged valid and escalated
+ * and still be unresolved — but CapDev has no complete resolve/close workflow
+ * yet, so in practice `status` sits at 'open' on records the trainer has fully
+ * determined. Rendering "open" beside "Escalation required" told the reader
+ * nothing true about where the risk stands, so it is not rendered at all.
+ *
+ * Determination is the primary visible state until lifecycle resolution is a
+ * real workflow. Nothing about the underlying columns changes.
+ */
+function determinationState(risk: RiskRecord): DeterminationState {
+  if (risk.determination === null) return "awaiting";
+  if (risk.determination === "not_a_risk") return "not_a_risk";
+  return risk.requires_escalation ? "escalation" : "valid";
+}
+
+const DETERMINATION_LABEL: Record<DeterminationState, string> = {
+  awaiting: "Awaiting determination",
+  valid: "Valid risk",
+  escalation: "Escalation required",
+  not_a_risk: "Not a risk",
+};
+
+const DETERMINATION_TONE: Record<DeterminationState, string> = {
+  awaiting: "border-[#96690A] text-[#96690A]",
+  valid: "border-rule text-ink-70",
+  escalation: "border-[#AC3A2A] text-[#AC3A2A]",
+  not_a_risk: "border-rule-soft text-ink-45",
+};
+
 export function RiskRecordDetail({ risk }: { risk: RiskRecord }): JSX.Element {
   const raisedBy =
     risk.identified_by && risk.identified_by !== risk.identified_by_role
@@ -47,12 +83,9 @@ export function RiskRecordDetail({ risk }: { risk: RiskRecord }): JSX.Element {
         <span className="text-[12px] text-ink-45">
           Raised by {raisedBy} &middot; {formatDate(risk.identified_at)}
         </span>
-        {risk.requires_escalation && (
-          <span className="text-[11px] text-[#AC3A2A] border border-[#AC3A2A] rounded-full px-2 py-0.5">
-            Escalation
-          </span>
-        )}
-        <span className="text-[11px] text-ink-45 ml-auto">{risk.status}</span>
+        <span className={`text-[11px] rounded-full px-2 py-0.5 border ml-auto ${DETERMINATION_TONE[determinationState(risk)]}`}>
+          {DETERMINATION_LABEL[determinationState(risk)]}
+        </span>
       </div>
 
       {/* The opening observation, in the raiser's own words. A determination
@@ -65,14 +98,8 @@ export function RiskRecordDetail({ risk }: { risk: RiskRecord }): JSX.Element {
 
       {risk.determination && (
         <p className="text-[12.5px] text-ink-70 mt-1">
-          <span className="font-semibold">
-            {risk.determination === "not_a_risk"
-              ? "Not a risk"
-              : risk.requires_escalation
-                ? "Escalation required"
-                : "Valid risk"}
-          </span>
-          {risk.determined_by && ` — ${risk.determined_by}`}
+          <span className="font-semibold">Determined</span>
+          {risk.determined_by && ` by ${risk.determined_by}`}
           {risk.determined_at && ` · ${formatDate(risk.determined_at)}`}
           {risk.determination_note && ` — ${risk.determination_note}`}
         </p>
@@ -85,14 +112,10 @@ export function RiskRecordDetail({ risk }: { risk: RiskRecord }): JSX.Element {
         </p>
       )}
 
-      {risk.resolution_note && (
-        <p className="text-[12.5px] text-ink-70 mt-1">
-          <span className="font-semibold">Resolution</span>
-          {risk.resolved_by && ` — ${risk.resolved_by}`}
-          {risk.resolved_at && ` · ${formatDate(risk.resolved_at)}`}
-          {` — ${risk.resolution_note}`}
-        </p>
-      )}
+      {/* No lifecycle resolution is shown here — not status, not resolved_by,
+          not the resolution note. Those columns are untouched in the database
+          and will be surfaced once there is a real resolve/close workflow
+          behind them. (0074) */}
     </>
   );
 }
@@ -109,9 +132,6 @@ export function RiskRecordList({ risks }: { risks: RiskRecord[] }): JSX.Element 
           {undetermined.map((r) => (
             <li key={r.id} className="py-2.5">
               <RiskRecordDetail risk={r} />
-              <p className="text-[12px] text-ink-45 mt-1">
-                Awaiting a trainer&rsquo;s determination.
-              </p>
             </li>
           ))}
         </ul>

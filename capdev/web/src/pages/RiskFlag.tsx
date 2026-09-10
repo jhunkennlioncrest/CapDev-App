@@ -344,11 +344,7 @@ function RiskRow({
             Determine this
           </button>
         )
-      ) : (
-        <p className="text-[12px] text-ink-45 mt-1">
-          Awaiting a trainer&rsquo;s determination.
-        </p>
-      )}
+      ) : null}
     </li>
   );
 }
