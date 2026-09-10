@@ -1,33 +1,30 @@
 import { useState } from "react";
-import { formatDuration } from "@/lib/format";
+import { requestQuickListen, type QuickListenOutcome } from "@/lib/quickListen";
 
 /**
- * Quick Listen — PRESENTATION PREVIEW ONLY (0075 Phase 0).
+ * Quick Listen - the request control (0075 Phase 2).
  *
- * This generates nothing, writes nothing and calls no service. It exists so the
- * placement, wording and weight of the feature can be judged on a real call
- * before any of the machinery behind it is built. The Generate button moves
- * through local state so the finished layout can be seen; reloading resets it.
+ * Phase 0 shipped this card with a mock state machine so the placement and
+ * weight could be judged on a real call. The mock is gone: pressing Generate
+ * now calls the quick-listen Edge Function, and every state shown below is a
+ * real answer from the server.
  *
- * Contained as a small card of its own, and everything it offers stays inside
- * that card. An earlier draft floated the Generate button out to the right edge,
- * where it lined up with the page-level actions (Delete, Record observations,
- * Review & correct) and read as a fourth thing to do with the call rather than
- * as an option belonging to the recording above it. The card is deliberately
- * tight — compact padding, one helper line — so it stays an aside.
+ * What has NOT arrived is audio. The function queues a digest and stops; no
+ * script is written and no file is produced. So there is deliberately no player
+ * here, and no control that looks like one. A "ready" digest is described as
+ * prepared, never as playable, because claiming otherwise would be a lie the
+ * user discovers by clicking.
  *
- * Two things here are real design decisions, not placeholder:
+ * Two things carried over from Phase 0 and must stay:
  *
- *   1. Nothing renders at all below MIN_DURATION_MS. Quick Listen is for long
- *      calls; on a ten-minute call it would cost money to save nobody any time,
- *      and an option that is never the right answer is only clutter.
+ *   1. Nothing renders at all below MIN_DURATION_MS. The server enforces the
+ *      same 30-minute rule; this gate is the courtesy, that one is the rule.
  *
- *   2. The finished Quick Listen player will be a SEPARATE audio element, never
- *      the original one. Evidence citations, moment clips and transcript
- *      follow-along are all anchored to the original recording's timeline — 44
- *      evidence rows already are — so playing a shorter file through that
- *      element would silently seek every one of them to the wrong place. This
- *      component never touches audioRef, and must not start.
+ *   2. This component never touches the original audio element. Evidence
+ *      citations, moment clips and transcript follow-along are all anchored to
+ *      the original recording's timeline, so when a Quick Listen player does
+ *      arrive it will be a SEPARATE element. audioRef is not imported here and
+ *      must not be.
  */
 
 /** Quick Listen is for long calls. Below this it is not offered at all. */
@@ -37,23 +34,56 @@ export function isQuickListenEligible(durationMs: number | null): boolean {
   return durationMs !== null && durationMs >= MIN_DURATION_MS;
 }
 
-type PreviewState = "idle" | "generating" | "ready";
+type State =
+  | { k: "idle" }
+  | { k: "requesting" }
+  | { k: "preparing"; digestId: string }
+  | { k: "prepared"; digestId: string }
+  | { k: "unavailable"; message: string }
+  | { k: "error"; message: string };
 
 export function QuickListenPreview({
+  callId,
   durationMs,
+  canGenerate,
 }: {
+  callId: string;
   durationMs: number | null;
+  canGenerate: boolean;
 }): JSX.Element | null {
-  const [state, setState] = useState<PreviewState>("idle");
+  const [state, setState] = useState<State>({ k: "idle" });
 
   if (!isQuickListenEligible(durationMs)) return null;
 
   const minutes = Math.round((durationMs ?? 0) / 60000);
-  // Roughly a sixth of the original, which is about what a 7-10 minute digest
-  // of a long call works out to. ILLUSTRATIVE ONLY — no audio exists, and the
-  // real duration will come from the generated file. Shown so the finished
-  // card can be judged at a realistic width.
-  const mockQuickMs = Math.round((durationMs ?? 0) / 6);
+
+  async function generate(): Promise<void> {
+    setState({ k: "requesting" });
+    let outcome: QuickListenOutcome;
+    try {
+      outcome = await requestQuickListen(callId);
+    } catch {
+      setState({
+        k: "error",
+        message: "Quick Listen could not be reached. Please try again.",
+      });
+      return;
+    }
+    switch (outcome.kind) {
+      case "preparing":
+        setState({ k: "preparing", digestId: outcome.digestId });
+        return;
+      case "prepared":
+        setState({ k: "prepared", digestId: outcome.digestId });
+        return;
+      case "unavailable":
+        setState({ k: "unavailable", message: outcome.message });
+        return;
+      case "error":
+        setState({ k: "error", message: outcome.message });
+        return;
+    }
+  }
 
   return (
     <section className="mt-3 border border-rule-soft rounded bg-card px-4 py-3">
@@ -66,59 +96,73 @@ export function QuickListenPreview({
         </span>
       </div>
 
-      {state === "idle" && (
+      {state.k === "idle" && (
         <>
           <p className="text-[13px] text-ink-70 mt-1.5">
             This {minutes}-minute call can be condensed into a shorter
             QA-focused listen.
           </p>
-          <button
-            onClick={() => {
-              // Purely visual. No request is made and nothing is stored.
-              setState("generating");
-              window.setTimeout(() => setState("ready"), 1200);
-            }}
-            className="mt-2.5 border border-ink bg-ink text-ground rounded px-3.5 py-1.5 text-[13px] font-medium hover:opacity-85"
-          >
-            Generate Quick Listen
-          </button>
+          {canGenerate ? (
+            <button
+              onClick={() => void generate()}
+              className="mt-2.5 border border-ink bg-ink text-ground rounded px-3.5 py-1.5 text-[13px] font-medium hover:opacity-85"
+            >
+              Generate Quick Listen
+            </button>
+          ) : (
+            // Shown rather than hidden: the card is part of the approved call
+            // layout, and a reviewer who cannot generate should be told why the
+            // button is absent instead of wondering where it went.
+            <p className="text-[12.5px] text-ink-45 mt-2">
+              Only Raw QA and QA Trainers can generate a Quick Listen.
+            </p>
+          )}
         </>
       )}
 
-      {state === "generating" && (
+      {state.k === "requesting" && (
+        <p className="text-[13px] text-ink-70 mt-1.5">Requesting Quick Listen&hellip;</p>
+      )}
+
+      {state.k === "preparing" && (
         <p className="text-[13px] text-ink-70 mt-1.5">
-          Building Quick Listen&hellip; you can leave this page and come back.
+          Quick Listen is being prepared. You can leave this page and come back.
         </p>
       )}
 
-      {state === "ready" && (
+      {state.k === "prepared" && (
+        // Truthful, and deliberately not a control. The digest row exists; the
+        // audio does not. Nothing here is clickable until a later phase writes
+        // a storage path and a separate player is built for it.
+        <p className="text-[13px] text-ink-70 mt-1.5">
+          A Quick Listen has been prepared for this call. Playback is not
+          available yet.
+        </p>
+      )}
+
+      {(state.k === "unavailable" || state.k === "error") && (
         <>
-          <p className="text-[13px] text-ink-70 mt-1.5">
-            <span className="font-mono">{formatDuration(mockQuickMs)}</span>{" "}
-            condensed from{" "}
-            <span className="font-mono">{formatDuration(durationMs)}</span>
-          </p>
-          {/* Not a button. No condensed audio exists yet, and a control that
-              looks playable and does nothing reads as broken rather than as a
-              preview. Inert until Phase 4 gives it something to play. */}
-          <span
-            aria-disabled="true"
-            className="mt-2.5 inline-block border border-dashed border-rule text-ink-45 bg-ground-2 rounded px-3.5 py-1.5 text-[13px] cursor-not-allowed select-none"
-          >
-            Play Quick Listen &middot; Preview only
-          </span>
+          <p className="text-[13px] text-ink-70 mt-1.5">{state.message}</p>
+          {state.k === "error" && canGenerate && (
+            <button
+              onClick={() => void generate()}
+              className="mt-2.5 border border-rule rounded px-3.5 py-1.5 text-[13px] hover:bg-ground-2"
+            >
+              Try again
+            </button>
+          )}
         </>
       )}
 
       {/* Said once, quietly, and never absent. */}
       <p className="text-[11.5px] text-ink-45 mt-2">
         AI-condensed review aid &middot; Original remains source of truth.
-        {state !== "idle" && (
+        {state.k !== "idle" && state.k !== "requesting" && (
           <button
-            onClick={() => setState("idle")}
+            onClick={() => setState({ k: "idle" })}
             className="underline underline-offset-2 ml-2 hover:text-ink-70"
           >
-            Reset preview
+            Back
           </button>
         )}
       </p>

@@ -479,12 +479,24 @@ export function CallDetail({ callId, session, onBack, onEvaluationSubmitted }: P
         <p className="mt-5 text-[13px] text-[#96690A]">No audio attached to this call.</p>
       )}
 
-      {/* 0075 Phase 0 — presentation preview only. Renders nothing at all for
-          calls under 30 minutes, and generates nothing when pressed. Placed
-          under the player rather than inside its sticky container: it is an
-          occasional choice, not something to carry down the page while the
-          reviewer scrolls the rubric. */}
-      {audioUrl && <QuickListenPreview durationMs={call.duration_ms} />}
+      {/* 0075 Phase 2 — a real request. Renders nothing at all for calls under
+          30 minutes; pressing Generate queues a digest through the quick-listen
+          Edge Function, which is also where the 30-minute rule is enforced for
+          real. No audio yet, and no player: this card never touches audioRef,
+          because evidence, moments and follow-along are all anchored to the
+          ORIGINAL recording's timeline. Placed under the player rather than
+          inside its sticky container: it is an occasional choice, not something
+          to carry down the page while the reviewer scrolls the rubric. */}
+      {audioUrl && (
+        <QuickListenPreview
+          callId={call.id}
+          durationMs={call.duration_ms}
+          canGenerate={
+            session.permissions.includes("raw_qa.submit") ||
+            session.permissions.includes("calibration.perform")
+          }
+        />
+      )}
 
       {job && (job.status === "running" || job.status === "queued") && (
         <div className="mt-6 border border-rule-soft rounded bg-card px-5 py-4">
