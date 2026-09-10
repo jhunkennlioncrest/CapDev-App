@@ -26,11 +26,12 @@
  *                   bug in this function cannot read another organisation's
  *                   call, transcript or digest: the database refuses first.
  *
- *   serviceClient - service_role. RLS does not apply. Used for ONE statement:
- *                   the insert of the new digest row, which has no INSERT
- *                   policy by design (0075). It is constructed only after the
- *                   caller has been authenticated and authorised, and its key
- *                   never leaves the function.
+ *   serviceClient - service_role. RLS does not apply. Used for exactly two
+ *                   statements: expiring a dead in-flight digest and inserting
+ *                   a new one. call_digest has no UPDATE or INSERT policy, by
+ *                   design (0075). It is constructed only after the caller has
+ *                   been authenticated and authorised, and its key never leaves
+ *                   the function.
  *
  * The 0076 composite foreign keys remain the last line: even if every check
  * above were wrong, the database will not accept a digest whose org, call and
@@ -45,6 +46,12 @@
 
 import { createClient, type SupabaseClient } from "jsr:@supabase/supabase-js@2";
 import { computeSourceFingerprint, speakerEntriesFrom } from "./fingerprint.ts";
+import {
+  STALE_QUEUED_MS,
+  STALE_RUNNING_MS,
+  staleMillis,
+  stalenessColumn,
+} from "./staleness.ts";
 
 /* -------------------------------------------------------------------------- */
 /* Constants                                                                   */
@@ -74,6 +81,9 @@ const MIN_DURATION_MS = 30 * 60 * 1000;
 const GENERATION_PERMISSIONS = ["raw_qa.submit", "calibration.perform"];
 
 const IN_FLIGHT = ["queued", "running"];
+
+// Staleness thresholds and the decision itself live in staleness.ts, where
+// they can be run and asserted outside the Edge Runtime.
 
 const UUID_RE =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -429,6 +439,15 @@ async function handle(req: Request): Promise<Response> {
 
   /* ---- 9. Is there already an answer to this request? -------------------- */
 
+  // service_role from here on, and only from here on: the caller has been
+  // authenticated, authorised, and shown to be able to read this call. It is
+  // used for exactly two statements - expiring a dead in-flight row and
+  // inserting a new one - because call_digest has no UPDATE or INSERT policy.
+  // Every READ below still goes through userClient, under RLS.
+  const serviceClient: SupabaseClient = createClient(supabaseUrl, serviceKey, {
+    auth: { persistSession: false, autoRefreshToken: false },
+  });
+
   const existing = await readCandidates(userClient, callId);
   if (existing === null) {
     return json(500, {
@@ -440,14 +459,33 @@ async function handle(req: Request): Promise<Response> {
 
   const inFlight = existing.find((d) => IN_FLIGHT.includes(d.status));
   if (inFlight) {
-    // Rule 1. Someone is already generating this call. Two people pressing the
-    // button must not become two provider bills.
-    log({ outcome: "reused_in_flight", person_id: personId, call_id: callId, digest_id: inFlight.id });
-    return json(200, {
-      status: inFlight.status,
+    const overdueBy = staleMillis(inFlight, Date.now());
+
+    if (overdueBy === null) {
+      // Rule 1. Someone is already generating this call. Two people pressing
+      // the button must not become two provider bills.
+      log({ outcome: "reused_in_flight", person_id: personId, call_id: callId, digest_id: inFlight.id });
+      return json(200, {
+        status: inFlight.status,
+        digest_id: inFlight.id,
+        reused: true,
+      });
+    }
+
+    // Dead, not working. Release the slot and carry on to queue a fresh one.
+    const won = await expireStaleInFlight(serviceClient, inFlight);
+    log({
+      outcome: "expired_stale_in_flight",
+      person_id: personId,
+      call_id: callId,
       digest_id: inFlight.id,
-      reused: true,
+      prior_status: inFlight.status,
+      overdue_ms: overdueBy,
+      won_race: won,
     });
+    // Whether this request won the expiry or a concurrent one did is not worth
+    // branching on: either way the slot is now free, and the unique index is
+    // the authority on which caller gets to fill it.
   }
 
   const reusableReady = existing.find(
@@ -474,10 +512,6 @@ async function handle(req: Request): Promise<Response> {
   }
 
   /* ---- 10. Queue exactly one -------------------------------------------- */
-
-  const serviceClient: SupabaseClient = createClient(supabaseUrl, serviceKey, {
-    auth: { persistSession: false, autoRefreshToken: false },
-  });
 
   const row = {
     org_id: call.org_id,          // from the call, never from the request
@@ -556,6 +590,62 @@ interface DigestCandidate {
   status: string;
   source_fingerprint: string;
   prompt_version: string;
+  requested_at: string;
+  started_at: string | null;
+}
+
+/**
+ * Marks one dead in-flight digest 'failed' so it stops holding the slot.
+ *
+ * Race safety comes from the WHERE clause, not from a lock we take ourselves.
+ * `.eq("status", d.status)` is a compare-and-swap: under READ COMMITTED, two
+ * concurrent callers both try the UPDATE, Postgres serialises them on the row,
+ * and the second one re-evaluates its condition against the row the first
+ * already changed. status is no longer what it was, so the second matches zero
+ * rows. Exactly one caller performs the transition.
+ *
+ * The timeout comparison is repeated in the WHERE as well, so a row that
+ * stopped being stale between the read and the write (a worker that reported in
+ * late) is not expired out from under itself.
+ *
+ * Both callers then go on to insert, and call_digest_one_in_flight_per_call
+ * decides which of them gets the new row. The loser sees 23505 and is handed
+ * the winner, exactly as in the ordinary race.
+ *
+ * The Edge Function's clock is used for the cutoff and for finished_at. Both
+ * are NTP-synced to within seconds and the thresholds are quarter-hours, so the
+ * skew cannot change an outcome; nothing correctness-bearing reads either value.
+ */
+async function expireStaleInFlight(
+  service: SupabaseClient,
+  d: DigestCandidate,
+): Promise<boolean> {
+  const limit = d.status === "running" ? STALE_RUNNING_MS : STALE_QUEUED_MS;
+  const column = stalenessColumn(d);
+  const cutoff = new Date(Date.now() - limit).toISOString();
+  const minutes = Math.round(limit / 60000);
+
+  const { data, error } = await service
+    .from("call_digest")
+    .update({
+      status: "failed",
+      finished_at: new Date().toISOString(),
+      error_message:
+        `timeout_${d.status}_${Math.round(limit / 1000)}s: no generation worker ` +
+        `finished this digest within ${minutes} minutes; the in-flight slot was ` +
+        `released so the call can be requested again.`,
+    })
+    .eq("id", d.id)
+    .eq("status", d.status)
+    .is("archived_at", null)
+    .lt(column, cutoff)
+    .select("id");
+
+  if (error) {
+    log({ outcome: "expire_failed", digest_id: d.id, code: error.code });
+    return false;
+  }
+  return (data ?? []).length === 1;
 }
 
 /**
@@ -574,7 +664,7 @@ async function readCandidates(
 ): Promise<DigestCandidate[] | null> {
   const { data, error } = await client
     .from("call_digest")
-    .select("id, status, source_fingerprint, prompt_version")
+    .select("id, status, source_fingerprint, prompt_version, requested_at, started_at")
     .eq("call_id", callId)
     .is("archived_at", null)
     .order("requested_at", { ascending: false });

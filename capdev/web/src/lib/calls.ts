@@ -305,10 +305,70 @@ export async function getCall(callId: string): Promise<CallListItem | null> {
   return data;
 }
 
+const TRANSCRIPT_FIELDS =
+  "id, call_id, source_format, original_filename, segments, segment_count, has_timing, speaker_count, version_no, created_at, kind, supersedes_id, provider, speakers";
+
+/**
+ * The AUTHORITATIVE transcript for a call: the one every reader should be
+ * looking at, and the one Quick Listen condenses.
+ *
+ * The ranking is reviewed > manual > machine, then newest version within a
+ * kind. It is NOT reimplemented here. v_call_list already computes it, in the
+ * same lateral join that compute_call_identity() and call_identity_conflict()
+ * use, so this asks the view which transcript and then fetches that row. One
+ * definition, in the database, for every reader.
+ *
+ * This used to order by version_no alone, which is a different question and
+ * can give a different answer: a re-transcription of a call that already has a
+ * reviewed transcript inserts a machine row at a HIGHER version_no, and
+ * version_no-desc would then show the machine text while the server, the
+ * identity functions and Quick Listen all used the reviewed one. No call in
+ * either environment is in that shape today — the divergence is latent, not
+ * live — but a reviewer and the AI reading two different transcripts of the
+ * same call is not a bug worth waiting for.
+ *
+ * Two round trips instead of one. The first is a primary-key lookup on a view
+ * CallDetail is already fetching; the cost is not worth duplicating the
+ * ordering to avoid.
+ */
 export async function getTranscript(callId: string): Promise<StoredTranscript | null> {
+  const { data: call, error: callError } = await supabase
+    .from("v_call_list")
+    .select("transcript_id")
+    .eq("id", callId)
+    .maybeSingle<{ transcript_id: string | null }>();
+  if (callError) throw new Error(callError.message);
+  if (!call?.transcript_id) return null;
+
   const { data, error } = await supabase
     .from("transcript")
-    .select("id, call_id, source_format, original_filename, segments, segment_count, has_timing, speaker_count, version_no, created_at, kind, supersedes_id, provider, speakers")
+    .select(TRANSCRIPT_FIELDS)
+    .eq("id", call.transcript_id)
+    .maybeSingle<StoredTranscript>();
+  if (error) throw new Error(error.message);
+  return data;
+}
+
+/**
+ * The NEWEST available version, which is a genuinely different question from
+ * "the authoritative one" and must not be confused with it.
+ *
+ * Only the write path wants this. saveTranscript() supersedes the row it is
+ * replacing and numbers the new one version_no + 1, and both of those are
+ * about position in the version sequence, not about authority. Handing it the
+ * authoritative row instead would let it compute a version_no that a
+ * higher-numbered available transcript already holds, and
+ * transcript_current_uniq (call_id, version_no) where archived_at is null
+ * would reject the insert.
+ *
+ * Deliberately not exported: nothing that DISPLAYS a transcript should call it.
+ */
+async function newestAvailableTranscript(
+  callId: string,
+): Promise<StoredTranscript | null> {
+  const { data, error } = await supabase
+    .from("transcript")
+    .select(TRANSCRIPT_FIELDS)
     .eq("call_id", callId)
     .is("archived_at", null)
     .eq("status", "available")
@@ -333,7 +393,9 @@ export async function saveTranscript(params: {
   filename: string;
   segments: Segment[];
 }): Promise<void> {
-  const existing = await getTranscript(params.callId);
+  // The version sequence, not the authoritative pick. See
+  // newestAvailableTranscript() for why these are different questions.
+  const existing = await newestAvailableTranscript(params.callId);
 
   if (existing) {
     const { error } = await supabase
