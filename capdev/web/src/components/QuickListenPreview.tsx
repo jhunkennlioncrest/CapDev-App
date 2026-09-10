@@ -44,14 +44,14 @@ export function QuickListenPreview({
   durationMs: number | null;
 }): JSX.Element | null {
   const [state, setState] = useState<PreviewState>("idle");
-  const [track, setTrack] = useState<"original" | "quick">("original");
 
   if (!isQuickListenEligible(durationMs)) return null;
 
   const minutes = Math.round((durationMs ?? 0) / 60000);
   // Roughly a sixth of the original, which is what a 7-10 minute digest of a
-  // long call works out to. Illustrative only — the real duration comes from
-  // the generated audio.
+  // long call works out to. ILLUSTRATIVE ONLY — no audio exists, and the real
+  // duration will come from the generated file. Shown so the finished layout
+  // can be judged at a realistic width.
   const mockQuickMs = Math.round((durationMs ?? 0) / 6);
 
   return (
@@ -74,10 +74,7 @@ export function QuickListenPreview({
             onClick={() => {
               setState("generating");
               // Purely visual. No request is made and nothing is stored.
-              window.setTimeout(() => {
-                setState("ready");
-                setTrack("quick");
-              }, 1400);
+              window.setTimeout(() => setState("ready"), 1400);
             }}
             className="mt-2.5 bg-ink text-ground border border-ink rounded px-4 py-2 text-[13px] font-medium hover:opacity-85"
           >
@@ -94,38 +91,32 @@ export function QuickListenPreview({
 
       {state === "ready" && (
         <>
-          {/* The ready layout: two named ways to hear the same call, the
-              original first and always available. */}
-          <div className="flex gap-2 mt-2.5 flex-wrap">
-            <button
-              onClick={() => setTrack("original")}
-              className={`rounded px-3.5 py-1.5 text-[13px] border ${
-                track === "original"
-                  ? "bg-ink text-ground border-ink"
-                  : "border-rule hover:bg-ground-2"
-              }`}
-            >
+          {/* What the finished control will look like: two named ways to hear
+              the same call, the original first and always available.
+              
+              Only the Original side is real. The Quick Listen side is rendered
+              as an inert, visibly disabled chip because no condensed audio
+              exists yet — an earlier draft styled it like a live control, and a
+              control that looks playable and does nothing reads as broken
+              rather than as a preview. Nothing here is clickable except Reset. */}
+          <div className="flex gap-2 mt-2.5 flex-wrap items-center">
+            <span className="rounded px-3.5 py-1.5 text-[13px] border bg-ink text-ground border-ink">
               Original &middot;{" "}
               <span className="font-mono">{formatDuration(durationMs)}</span>
-            </button>
-            <button
-              onClick={() => setTrack("quick")}
-              className={`rounded px-3.5 py-1.5 text-[13px] border ${
-                track === "quick"
-                  ? "bg-ink text-ground border-ink"
-                  : "border-rule hover:bg-ground-2"
-              }`}
+            </span>
+            <span
+              aria-disabled="true"
+              className="rounded px-3.5 py-1.5 text-[13px] border border-dashed border-rule text-ink-45 bg-ground-2 cursor-not-allowed select-none"
             >
               AI Quick Listen &middot;{" "}
-              <span className="font-mono">{formatDuration(mockQuickMs)}</span>
-            </button>
+              <span className="font-mono">{formatDuration(mockQuickMs)}</span>{" "}
+              &middot; Preview only
+            </span>
           </div>
 
           <div className="mt-3 border border-dashed border-rule rounded px-3 py-4 text-center">
             <p className="text-[12.5px] text-ink-45">
-              {track === "original"
-                ? "The original player above stays where it is — this control only chooses which one you are listening to."
-                : "The Quick Listen player will sit here, separate from the original."}
+              Generated Quick Listen audio will appear here.
             </p>
           </div>
         </>
@@ -138,10 +129,7 @@ export function QuickListenPreview({
 
       {state !== "idle" && (
         <button
-          onClick={() => {
-            setState("idle");
-            setTrack("original");
-          }}
+          onClick={() => setState("idle")}
           className="text-[11.5px] text-ink-45 underline underline-offset-2 mt-1.5"
         >
           Reset preview
