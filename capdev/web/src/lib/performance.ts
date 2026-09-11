@@ -261,11 +261,21 @@ export async function unlinkedCalls(): Promise<
  * figure more than any real change in performance would.
  */
 /**
- * "none" is no calibrated evaluation at all — rendered as an em dash, because
- * there is nothing to say. It is deliberately NOT the same state as one
- * evaluation, which reads Stable: a single score is a baseline, not an absence.
+ * Five states, and the distinction between the last two is the whole point.
+ *
+ * "none" is no calibrated evaluation at all — an em dash, because there is
+ * nothing to say. "baseline" is exactly one: a first point under the active
+ * rubric, with no earlier score to compare it against. Neither is a measured
+ * direction, and neither may be called Stable.
+ *
+ * "flat" is a MEASUREMENT — two real scores, compared, within the band — and it
+ * is the only one of the five that asserts nothing changed. Collapsing
+ * "baseline" into it, as this code did until now, told the reader that a
+ * representative with a single evaluation had held steady. Nothing had been
+ * observed to hold. Direction is reported here; whether the score itself is
+ * good or bad is not this function's business and never becomes one.
  */
-export type TrendDirection = "up" | "down" | "flat" | "none";
+export type TrendDirection = "up" | "down" | "flat" | "baseline" | "none";
 
 /** One calibrated evaluation, as the trend reads it. */
 export interface TrendPoint {
@@ -287,14 +297,13 @@ export interface RepTrend {
   current: number | null;
   /** current − previous, in percentage points. Null unless both exist. */
   delta: number | null;
-  direction: TrendDirection;
   /**
-   * True when "Stable" is the NEUTRAL BASELINE of a single evaluation rather
-   * than a measured absence of movement. Both read Stable — one score is where
-   * a representative starts, not a failure to have a trend — but only one of
-   * them is a claim that nothing changed, and the tooltip says which.
+   * There is no separate `baseline` flag beside this. There used to be, and it
+   * was a second source of truth for the same fact: `direction` said "flat"
+   * while the boolean said "actually, one evaluation". Anything that read one
+   * and not the other printed Stable. The state now has a name of its own.
    */
-  baseline: boolean;
+  direction: TrendDirection;
 }
 
 export const TREND_BAND = 1;
@@ -334,14 +343,15 @@ export function calibratedTrend(points: TrendPoint[]): RepTrend {
 
   // Nothing calibrated: an em dash, not a direction.
   if (current === null) {
-    return { previous: null, current: null, delta: null, direction: "none", baseline: false };
+    return { previous: null, current: null, delta: null, direction: "none" };
   }
 
-  // Exactly one: Stable, as the neutral baseline. It asserts no movement was
-  // observed, because none could have been — delta stays null so nothing can
-  // print a change that was never measured.
+  // Exactly one: a baseline, not a trend. There is no earlier score, so no
+  // direction was measured and none is named — delta stays null so nothing
+  // downstream can print a change that was never observed. Explicitly NOT
+  // "flat": flat means two scores were compared and did not move.
   if (previous === null) {
-    return { previous: null, current, delta: null, direction: "flat", baseline: true };
+    return { previous: null, current, delta: null, direction: "baseline" };
   }
 
   const delta = Math.round((current - previous) * 10) / 10;
@@ -350,7 +360,6 @@ export function calibratedTrend(points: TrendPoint[]): RepTrend {
     current,
     delta,
     direction: delta > TREND_BAND ? "up" : delta < -TREND_BAND ? "down" : "flat",
-    baseline: false,
   };
 }
 

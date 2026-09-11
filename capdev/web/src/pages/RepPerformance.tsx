@@ -222,8 +222,8 @@ export function RepPerformance({
                           ? undefined
                           : t === undefined || t.direction === "none"
                             ? "No submitted calibrated evaluation under the active rubric yet"
-                            : t.baseline
-                              ? "Only one calibrated evaluation available; Stable is the neutral baseline."
+                            : t.direction === "baseline"
+                              ? "First calibrated evaluation under the active rubric; no earlier score to compare against."
                               : `Previous ${t.previous}% \u2192 current ${t.current}%`
                       }
                       style={{
@@ -310,9 +310,11 @@ export function RepPerformance({
               value={
                 trend.direction === "none"
                   ? "—"
-                  : `${trend.direction === "up" ? "↑" : trend.direction === "down" ? "↓" : "→"} ${
-                      trend.delta === null ? "" : `${Math.abs(trend.delta)} pts`
-                    }`
+                  : trend.direction === "baseline"
+                    ? "·"
+                    : `${trend.direction === "up" ? "↑" : trend.direction === "down" ? "↓" : "→"} ${
+                        trend.delta === null ? "" : `${Math.abs(trend.delta)} pts`
+                      }`
               }
               caption="trend"
             />
@@ -336,8 +338,8 @@ export function RepPerformance({
               )}
             {trend.direction === "none" &&
               " No submitted calibrated evaluation under this rubric yet."}
-            {trend.baseline &&
-              " Only one calibrated evaluation so far, so Stable is the neutral baseline."}
+            {trend.direction === "baseline" &&
+              " Only one calibrated evaluation so far \u2014 that is a baseline, not a trend: there is no earlier score to compare it against."}
           </p>
 
           {criteria.length > 0 && (

@@ -207,21 +207,34 @@ export function Meter({
 /* Trend                                                                      */
 /* -------------------------------------------------------------------------- */
 
-export type Trend = "up" | "down" | "flat" | "none";
+export type Trend = "up" | "down" | "flat" | "baseline" | "none";
 
+/**
+ * "Stable" is reserved. It is only ever shown when two calibrated scores were
+ * compared and the difference fell inside the band. A representative with one
+ * score reads "Baseline" — their first point under the active rubric — because
+ * nothing has yet been measured against anything.
+ *
+ * None of these words judge the score. Improving, Declining, Stable and
+ * Baseline describe direction over time and nothing else; a representative can
+ * be Improving at 40% and Stable at 95%.
+ */
 const TREND_LABEL: Record<Trend, string> = {
   up: "Improving",
   down: "Declining",
   flat: "Stable",
+  baseline: "Baseline",
   none: "No calibrated evaluations yet",
 };
+/** A single point for a single score; an arrow would assert travel. */
 const TREND_GLYPH: Record<Trend, string> = {
-  up: "↑", down: "↓", flat: "→", none: "—",
+  up: "↑", down: "↓", flat: "→", baseline: "·", none: "—",
 };
 const TREND_TONE: Record<Trend, string> = {
   up: "text-moss",
   down: "text-clay",
   flat: "text-ink-70",
+  baseline: "text-ink-45",
   none: "text-ink-45",
 };
 

@@ -125,7 +125,7 @@ export function RepPerformanceSummary({
         <ul className="divide-y divide-rule-soft">
           {visible.map((r) => {
             const t: RepTrend = trends[r.representative_id] ??
-              { previous: null, current: null, delta: null, direction: "none", baseline: false };
+              { previous: null, current: null, delta: null, direction: "none" };
             const rawScore = r.representative_id in rawScores
               ? rawScores[r.representative_id] ?? null
               : null;
@@ -146,8 +146,8 @@ export function RepPerformanceSummary({
             const currText = t.current === null ? "—" : `${t.current}%`;
             const trendTitle = t.direction === "none"
               ? "No submitted calibrated evaluation under the active rubric yet"
-              : t.baseline
-                ? "Only one calibrated evaluation available; Stable is the neutral baseline."
+              : t.direction === "baseline"
+                ? "First calibrated evaluation under the active rubric. There is no earlier score to compare it against, so no direction is claimed."
                 : `Current minus previous calibrated score: ${
                     t.delta !== null && t.delta > 0 ? "+" : ""
                   }${t.delta} pts`;
