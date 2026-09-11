@@ -35,7 +35,10 @@
 
 import type { SupabaseClient } from "jsr:@supabase/supabase-js@2";
 import { computeSourceFingerprint, speakerEntriesFrom } from "./fingerprint.ts";
-import type { SourceSegment } from "./scriptContract.ts";
+import {
+  resolveProviderSegments,
+  type ProviderSegment,
+} from "./providerInput.ts";
 
 /** Must match PROMPT_VERSION in index.ts. A digest queued under a different
  *  prompt contract is not this worker's to process. */
@@ -78,6 +81,7 @@ export async function runQuickListenWorker(
     log({
       outcome: "provider_input_built",
       digest_id: digestId,
+      // Counts only. The text these segments carry is never logged.
       segments: input.segments.length,
       speakers: input.speakers.length,
       criteria: input.rubricCriteria.length,
@@ -179,7 +183,7 @@ async function claimDigest(
 /* -------------------------------------------------------------------------- */
 
 export interface ResolvedSource {
-  segments: SourceSegment[];
+  segments: ProviderSegment[];
   speakers: { label: string; name: string | null; role: string | null }[];
   callDurationMs: number | null;
 }
@@ -271,27 +275,9 @@ async function resolveSource(
     return { reason: "stale_source", detail: "the transcript has changed since this generation was requested" };
   }
 
-  const byLabel = new Map(speakerEntries.map((s) => [s.label, s]));
-  const raw = Array.isArray(transcript.segments) ? transcript.segments : [];
-  const segments: SourceSegment[] = raw.map((s, i) => {
-    const seg = (s ?? {}) as Record<string, unknown>;
-    const label = typeof seg["speaker"] === "string"
-      ? (seg["speaker"] as string)
-      : typeof seg["speaker_label"] === "string" ? (seg["speaker_label"] as string) : "";
-    const who = byLabel.get(label.trim());
-    const num = (k: string): number | null => {
-      const v = seg[k];
-      return typeof v === "number" && Number.isFinite(v) ? Math.round(v) : null;
-    };
-    return {
-      i,
-      speaker_label: label.trim(),
-      name: who?.name ?? null,
-      role: who?.role ?? null,
-      start_ms: num("start_ms") ?? num("start"),
-      end_ms: num("end_ms") ?? num("end"),
-    };
-  });
+  const resolved = resolveProviderSegments(transcript.segments, speakerEntries);
+  if ("reason" in resolved) return resolved;
+  const segments = resolved;
 
   return {
     segments,
@@ -309,7 +295,7 @@ export interface ProviderInput {
   callDurationMs: number | null;
   promptVersion: string;
   sourceFingerprint: string;
-  segments: SourceSegment[];
+  segments: ProviderSegment[];
   speakers: { label: string; name: string | null; role: string | null }[];
   rubricVersionId: string | null;
   rubricCriteria: { code: string; stage: string | null; label: string; statement: string }[];

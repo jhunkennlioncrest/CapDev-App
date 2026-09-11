@@ -23,7 +23,25 @@
  * Pure. No network, no database, no clock. Runs unchanged in Deno and in Node.
  */
 
-/** One segment of the authoritative transcript, as the worker resolves it. */
+/**
+ * One segment of the authoritative transcript, as the validator sees it.
+ *
+ * NOTE WHAT IS ABSENT: the segment's text. This type is the PROVENANCE view,
+ * and the validator's job is to check that a line cites real segments,
+ * attributes them to the right speaker and spans exactly the time they cover -
+ * none of which needs to read a word of what was said.
+ *
+ * Keeping text out is a safety property, not an oversight. Every violation
+ * message produced here ends up in logs and in call_digest.error_message, and
+ * neither may carry client content. If text were in scope in this file, some
+ * future "helpful" error message would quote it. It cannot quote what it cannot
+ * reach.
+ *
+ * The worker's ProviderSegment extends this with the text a condensation
+ * provider needs, so one array serves both: the provider sees the wider view,
+ * the validator the narrower one, and the two can never drift apart into
+ * different segment lists.
+ */
 export interface SourceSegment {
   /** Position in the transcript, 0-based. This is what source_i references. */
   i: number;
