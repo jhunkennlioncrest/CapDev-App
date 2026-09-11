@@ -58,11 +58,15 @@ export function RepPerformanceSummary({
         ),
       );
 
-      // Trend needs the individual evaluations, so only the few shown here —
-      // and only those with evaluations to read a trend from.
-      const top = all.filter((r) => r.evaluations > 0).slice(0, 5);
+      // Trend needs each representative's own evaluations. This used to fetch
+      // only the five that were rendered; the Dashboard now shows the full
+      // roster, so limiting it here would leave everyone past the fifth with a
+      // permanent "no trend" dot that looks like data. Still only those with
+      // evaluations to read a trend from — there is nothing to ask about the
+      // rest.
+      const scored = all.filter((r) => r.evaluations > 0);
       const results = await Promise.all(
-        top.map(async (r) => [
+        scored.map(async (r) => [
           r.representative_id,
           trendFrom(await repEvaluations(r.representative_id, active.id)).direction,
         ] as const),
@@ -117,7 +121,7 @@ export function RepPerformanceSummary({
       </div>
 
       <ul className="bg-card border border-rule-soft rounded divide-y divide-rule-soft">
-        {visible.slice(0, 5).map((r) => {
+        {visible.map((r) => {
           const trend = trends[r.representative_id];
           const rawScore = r.representative_id in rawScores
             ? rawScores[r.representative_id] ?? null
@@ -235,17 +239,6 @@ export function RepPerformanceSummary({
         })}
       </ul>
 
-      {/* The only route to the full roster. Passing no representative id opens
-          the roster itself rather than a person — the previous generic link
-          landed on whoever happened to sort first, which read as a selection
-          nobody had made. */}
-      <button
-        onClick={() => onOpen()}
-        className="text-[12px] text-ink-45 underline underline-offset-2
-                   hover:text-ink mt-1.5"
-      >
-        View all {visible.length} representative{visible.length === 1 ? "" : "s"} &rarr;
-      </button>
     </section>
   );
 }

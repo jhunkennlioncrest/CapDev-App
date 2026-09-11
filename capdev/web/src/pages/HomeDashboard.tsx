@@ -1,5 +1,4 @@
 import { useCallback, useEffect, useState } from "react";
-import { RiskSection } from "@/pages/RiskSection";
 import { CalibrationAccuracySection } from "@/pages/CalibrationAccuracySection";
 import { RepPerformanceSummary } from "@/pages/RepPerformanceSummary";
 import { PerformanceOverview } from "@/pages/PerformanceOverview";
@@ -13,19 +12,16 @@ import {
   type TrainerFigures,
 } from "@/lib/dashboard";
 import { supabase } from "@/lib/supabase";
-import { formatDate } from "@/lib/format";
 import type { Session } from "@/lib/types";
 import type { Workspace } from "@/components/AppShell";
 
 interface Counts {
   pendingRaw: number;
   waitingCalibration: number;
-  completedToday: number;
   /** How many completed evaluations the representative figure is drawn from. */
   completedEvaluations: number;
   moments: number;
   averageScore: number | null;
-  recent: { id: string; title: string; when: string; what: string }[];
 }
 
 /**
@@ -73,24 +69,14 @@ export function HomeDashboard({
     setMine(r);
     setTrainer(t);
 
-    const today = new Date().toDateString();
     const stats = statsFrom(repo);
 
     setCounts({
       pendingRaw: raw.length,
       waitingCalibration: queue.filter((q) => q.status === "waiting").length,
-      completedToday: repo.filter(
-        (r) => r.submitted_at && new Date(r.submitted_at).toDateString() === today,
-      ).length,
       completedEvaluations: stats.completed,
       moments: moments.count ?? 0,
       averageScore: stats.averageScore,
-      recent: repo.slice(0, 6).map((r) => ({
-        id: r.call_id,
-        title: r.call_title,
-        when: r.submitted_at ? formatDate(r.submitted_at) : "",
-        what: `${r.overall_score ?? "—"}% · calibrated by ${r.trainer_name ?? "—"}`,
-      })),
     });
   }, [canReview, canCalibrate, session.person.id]);
 
@@ -189,89 +175,12 @@ export function HomeDashboard({
               observations matched the trainer's final decisions. */}
           <CalibrationAccuracySection session={session} />
 
-          {/* Separate again from both scoring and calibration accuracy: this
-              asks what needs attention, not how anyone performed. */}
-          <RiskSection session={session} />
-
-          {/* Named for what the role actually did: a reviewer observes, a
-              trainer calibrates. The old shared "Recent evaluations" implied
-              the reviewer owned the representative's final score.
-
-              Gated for the same reason as the completed-this-week Card above:
-              the ternary's else-branch is "Recent observations", and a role
-              that never observes was being told "No observations submitted
-              yet" about work it does not do. A management dashboard should be
-              quiet where it has no personal work, not full of empty personal
-              panels. */}
-          {(canReview || canCalibrate) && (canCalibrate ? (
-            <section className="mt-7">
-              <h2 className="font-mono text-[10px] tracking-[0.14em] uppercase text-ink-45 mb-2.5">
-                Recent calibrations
-              </h2>
-              {(trainer?.recent.length ?? 0) === 0 ? (
-                <p className="text-[13px] text-ink-45 border border-dashed border-rule rounded px-4 py-4">
-                  No calibrations completed yet.
-                </p>
-              ) : (
-                <ul className="bg-card border border-rule-soft rounded divide-y divide-rule-soft">
-                  {trainer?.recent.map((r) => (
-                    <li key={r.id}>
-                      <button
-                        onClick={() => onNavigate(canCalibrate ? "calibration" : "rawqa")}
-                        className="w-full text-left px-4 py-2.5 flex justify-between items-baseline gap-3 hover:bg-ground"
-                      >
-                        <span className="text-[13.5px] min-w-0 truncate">
-                          {r.representative_name ?? r.call_title}
-                        </span>
-                        <span className="text-[12px] text-ink-45 shrink-0">
-                          {r.score === null ? "—" : `${r.score}%`}
-                          {" · "}
-                          {r.disagreements === 0
-                            ? "no disagreements"
-                            : `${r.disagreements} disagreement${r.disagreements === 1 ? "" : "s"}`}
-                          {" · "}
-                          {formatDate(r.submitted_at)}
-                        </span>
-                      </button>
-                    </li>
-                  ))}
-                </ul>
-              )}
-            </section>
-          ) : (
-            <section className="mt-7">
-              <h2 className="font-mono text-[10px] tracking-[0.14em] uppercase text-ink-45 mb-2.5">
-                Recent observations
-              </h2>
-              {(mine?.recent.length ?? 0) === 0 ? (
-                <p className="text-[13px] text-ink-45 border border-dashed border-rule rounded px-4 py-4">
-                  No observations submitted yet.
-                </p>
-              ) : (
-                <ul className="bg-card border border-rule-soft rounded divide-y divide-rule-soft">
-                  {mine?.recent.map((r) => (
-                    <li key={r.id}>
-                      <button
-                        onClick={() => onNavigate(canCalibrate ? "calibration" : "rawqa")}
-                        className="w-full text-left px-4 py-2.5 flex justify-between items-baseline gap-3 hover:bg-ground"
-                      >
-                        <span className="text-[13.5px] min-w-0 truncate">
-                          {r.representative_name ?? r.call_title}
-                        </span>
-                        <span className="text-[12px] text-ink-45 shrink-0">
-                          {/* No score here: the reviewer does not own the
-                              representative's result. */}
-                          {r.calibrated ? "calibrated" : "awaiting calibration"}
-                          {" · "}
-                          {formatDate(r.submitted_at)}
-                        </span>
-                      </button>
-                    </li>
-                  ))}
-                </ul>
-              )}
-            </section>
-          ))}
+          {/* "Recent observations" and "Recent calibrations" used to sit here.
+              They were a log, not a decision: a reviewer already knows what
+              they submitted, and neither list changed what anyone would do
+              next. The history itself is untouched — it is in the Library, on
+              Rep Performance and on each call. Removing the panels also
+              retired the five queries that fed them (see dashboard.ts). */}
         </>
       )}
       {/* 0077: the shared performance picture, below the personal work and
