@@ -417,3 +417,81 @@ export async function calibrationHotspots(): Promise<CalibrationHotspot[]> {
   if (error) throw new Error(error.message);
   return (data ?? []) as CalibrationHotspot[];
 }
+
+/* -------------------------------------------------------------------------- */
+/* 0077 — Raw QA performance per representative                                */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * The Raw QA counterpart to RepPerformance.
+ *
+ * A separate type over a separate view, for the same reason the views are
+ * separate: Raw QA and QA Trainer are distinct scoring systems that are
+ * comparable but never interchangeable. One shared type would make averaging
+ * them a one-line mistake instead of a deliberate one.
+ *
+ * Carries no Trainer concepts — no non-negotiables, no reward, no high-risk
+ * count. Those belong to the calibrated assessment.
+ */
+export interface RepRawObservationPerformance {
+  representative_id: string;
+  representative_name: string;
+  department: string;
+  employee_ref: string;
+  status: string;
+  is_inactive: boolean;
+  rubric_version_id: string;
+  version_label: string;
+  is_current_rubric: boolean;
+  observations: number;
+  /** Pooled: criteria met ÷ criteria assessed, over submitted observations. */
+  score: number | null;
+  criteria_assessed: number;
+  criteria_met: number;
+  first_observed: string | null;
+  last_observed: string | null;
+}
+
+/**
+ * Raw QA performance for every representative, one row per rubric version.
+ *
+ * The rubric filter mirrors listRepPerformance exactly, including the null
+ * branch: representatives with no submitted observation carry a null
+ * rubric_version_id, and .eq() excludes nulls, so filtering by rubric alone
+ * would drop the never-observed part of the roster.
+ */
+export async function listRepRawObservationPerformance(
+  rubricVersionId?: string | null,
+): Promise<RepRawObservationPerformance[]> {
+  let q = supabase.from("v_rep_raw_observation_performance").select("*");
+  if (rubricVersionId) {
+    q = q.or(`rubric_version_id.eq.${rubricVersionId},rubric_version_id.is.null`);
+  }
+  const { data, error } = await q;
+  if (error) throw new Error(error.message);
+  return (data ?? []) as RepRawObservationPerformance[];
+}
+
+/**
+ * The difference between the two assessments, in PERCENTAGE POINTS.
+ *
+ * Points, not percent change: 88% against 82% is six points apart, and calling
+ * that "7.3% higher" would describe a relationship between the two numbers
+ * rather than the size of the disagreement.
+ *
+ * Returns null when either side is missing. A rep with one assessment has no
+ * gap — substituting zero for the absent side would invent a disagreement, or
+ * hide one, depending on which way it fell.
+ */
+export function scoreGap(raw: number | null, trainer: number | null): number | null {
+  if (raw === null || trainer === null) return null;
+  return raw - trainer;
+}
+
+/** "+6 pts", "-4 pts", "0 pts", or an em dash. The sign is never implicit. */
+export function formatGap(gap: number | null): string {
+  if (gap === null) return "—";
+  const rounded = Math.round(gap * 10) / 10;
+  if (rounded === 0) return "0 pts";
+  return `${rounded > 0 ? "+" : "−"}${Math.abs(rounded)} pts`;
+}

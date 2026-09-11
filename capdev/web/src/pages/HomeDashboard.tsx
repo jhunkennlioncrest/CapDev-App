@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from "react";
 import { RiskSection } from "@/pages/RiskSection";
 import { CalibrationAccuracySection } from "@/pages/CalibrationAccuracySection";
 import { RepPerformanceSummary } from "@/pages/RepPerformanceSummary";
+import { PerformanceOverview } from "@/pages/PerformanceOverview";
 import { getQueue } from "@/lib/evaluation";
 import { getRawWorklist } from "@/lib/workflow";
 import { listRepository, statsFrom } from "@/lib/repository";
@@ -47,6 +48,10 @@ export function HomeDashboard({
   const [counts, setCounts] = useState<Counts | null>(null);
   const canReview = session.permissions.includes("raw_qa.submit");
   const canCalibrate = session.permissions.includes("calibration.perform");
+  // Reading performance is not authority over it. This gate mirrors the RLS
+  // predicate guarding evaluation data; it never widens what the database will
+  // return, and it grants no action anywhere.
+  const canSeePerformance = session.permissions.includes("evaluation.read");
   // Role-scoped figures, kept apart from the org-wide repository stats the
   // Repository page uses.
   const [mine, setMine] = useState<ReviewerFigures | null>(null);
@@ -252,14 +257,23 @@ export function HomeDashboard({
           )}
         </>
       )}
-      {/* Rep performance summarises completed work. Trainers and managers
-          only: a reviewer making objective observations should not be
-          weighing historical performance at the same time. */}
-      {onOpenRepPerformance &&
-        (session.permissions.includes("calibration.perform") ||
-          session.permissions.includes("organization.manage")) && (
-          <RepPerformanceSummary onOpen={onOpenRepPerformance} />
-        )}
+      {/* 0077: the shared performance picture, below the personal work and
+          never in place of it. Every role that can read evaluations sees the
+          same figures — including Raw QA, deliberately. A reviewer who cannot
+          see where the calibrated assessment lands has nothing to calibrate
+          against, and the earlier reasoning for hiding it (that a reviewer
+          should not weigh historical performance mid-observation) protected
+          them from information rather than from a mistake.
+
+          The gate is evaluation.read because that is already the RLS predicate
+          on every table underneath: the UI and the database agree by
+          construction rather than by upkeep. It grants nothing — calibration,
+          submission and management authority are elsewhere and untouched. */}
+      {canSeePerformance && <PerformanceOverview />}
+
+      {canSeePerformance && onOpenRepPerformance && (
+        <RepPerformanceSummary onOpen={onOpenRepPerformance} />
+      )}
 
     </div>
   );
