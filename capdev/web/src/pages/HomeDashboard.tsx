@@ -134,21 +134,31 @@ export function HomeDashboard({
             )}
             {/* The period is stated, and the count is this person's own work
                 — not the organisation's, which is what "completed today"
-                silently showed before. */}
-            <Card
-              value={
-                canCalibrate
-                  ? (trainer?.completedThisWeek ?? 0)
-                  : (mine?.completedThisWeek ?? 0)
-              }
-              label={
-                canCalibrate
-                  ? "calibrations you completed this week"
-                  : "observations you completed this week"
-              }
-              action="See the library"
-              onClick={() => onNavigate("library")}
-            />
+                silently showed before.
+
+                Gated on actually holding a QA workflow role. Without the gate
+                a Manager or Executive — who neither observes nor calibrates —
+                fell through to `mine?.completedThisWeek ?? 0` and was shown
+                "0 observations you completed this week": a personal figure for
+                work the role does not do, and a zero that describes nothing.
+                Management reads org-wide Observed and Evaluated counts from
+                the shared Performance section below instead. */}
+            {(canReview || canCalibrate) && (
+              <Card
+                value={
+                  canCalibrate
+                    ? (trainer?.completedThisWeek ?? 0)
+                    : (mine?.completedThisWeek ?? 0)
+                }
+                label={
+                  canCalibrate
+                    ? "calibrations you completed this week"
+                    : "observations you completed this week"
+                }
+                action="See the library"
+                onClick={() => onNavigate("library")}
+              />
+            )}
           </div>
 
           {/* Representative performance and the Library count belong to the
@@ -185,8 +195,15 @@ export function HomeDashboard({
 
           {/* Named for what the role actually did: a reviewer observes, a
               trainer calibrates. The old shared "Recent evaluations" implied
-              the reviewer owned the representative's final score. */}
-          {canCalibrate ? (
+              the reviewer owned the representative's final score.
+
+              Gated for the same reason as the completed-this-week Card above:
+              the ternary's else-branch is "Recent observations", and a role
+              that never observes was being told "No observations submitted
+              yet" about work it does not do. A management dashboard should be
+              quiet where it has no personal work, not full of empty personal
+              panels. */}
+          {(canReview || canCalibrate) && (canCalibrate ? (
             <section className="mt-7">
               <h2 className="font-mono text-[10px] tracking-[0.14em] uppercase text-ink-45 mb-2.5">
                 Recent calibrations
@@ -254,7 +271,7 @@ export function HomeDashboard({
                 </ul>
               )}
             </section>
-          )}
+          ))}
         </>
       )}
       {/* 0077: the shared performance picture, below the personal work and

@@ -268,12 +268,17 @@ export async function sharedPerformance(): Promise<SharedPerformance> {
   // The active rubric, resolved the same way evaluation.ts resolves it, so the
   // Dashboard and the scoring path can never disagree about which rubric is
   // current.
-  const { data: rubric } = await supabase
+  const { data: rubric, error: rubricError } = await supabase
     .from("rubric_version")
     .select("id, version_label")
     .eq("status", "active")
     .limit(1)
     .maybeSingle<{ id: string; version_label: string }>();
+  // "No active rubric" and "the read failed" are different answers and must
+  // not share a return value. The first is legitimately nothing to show; the
+  // second is thrown, so the caller renders its unavailable path rather than
+  // a section full of zeroes.
+  if (rubricError) throw new Error(rubricError.message);
 
   const empty: SharedPerformance = {
     rubricVersionId: null,
@@ -337,6 +342,14 @@ export async function sharedPerformance(): Promise<SharedPerformance> {
       .not("non_negotiables_all_pass", "is", null),
   ]);
 
+  // An error is not an empty result. `data ?? []` would turn a refused or
+  // failed read into "Observed 0" and "no data yet" — a measured claim about
+  // the department, made from a query that never returned. Every read that
+  // feeds a figure is checked before any figure is computed.
+  for (const r of [rawRows, calRows, stageRows, nnRows]) {
+    if (r.error) throw new Error(r.error.message);
+  }
+
   const pooled = (
     rows: { yes_count: number | null; applicable_count: number | null }[] | null,
   ): number | null => {
@@ -366,7 +379,14 @@ export async function sharedPerformance(): Promise<SharedPerformance> {
   const nnPassed = nn.filter((r) => r.non_negotiables_all_pass).length;
 
   const evaluatedCount = cal.length;
-  const align = alignment.data;
+  // Deliberately NOT thrown. The whole point of the restricted state is that
+  // Disagreements can be unreadable while every other figure is fine, so an
+  // error here degrades this one figure instead of the section. It is folded
+  // into the same null the "row absent while calibrations exist" case
+  // produces — both mean "you cannot see this" — while a clean read of no row
+  // with no calibrations stays the genuine zero-data answer.
+  const alignFailed = alignment.error !== null && alignment.error !== undefined;
+  const align = alignFailed ? null : alignment.data;
 
   return {
     rubricVersionId: versionId,
@@ -381,7 +401,7 @@ export async function sharedPerformance(): Promise<SharedPerformance> {
     // calibrations DO exist means the read was refused.
     disagreements: align
       ? { pct: (100 * align.misaligned) / align.comparisons, comparisons: align.comparisons }
-      : evaluatedCount === 0
+      : !alignFailed && evaluatedCount === 0
         ? { pct: 0, comparisons: 0 }
         : null,
     stages: byStage,

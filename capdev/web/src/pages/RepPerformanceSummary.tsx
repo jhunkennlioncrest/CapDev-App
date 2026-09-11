@@ -106,15 +106,13 @@ export function RepPerformanceSummary({
       {/* Three numeric columns need naming: "88% 82% +6 pts" is unreadable
           without them, and guessing which is which is exactly the confusion
           that blending the two scores would cause. */}
-      <div className="flex items-baseline gap-2 sm:gap-4 px-4 pb-1.5 text-[10.5px] text-ink-45">
+      {/* Column captions belong to the wide layout. Narrow rows label each
+          figure inline instead, so nothing is ever an unlabelled number. */}
+      <div className="hidden sm:flex items-baseline gap-4 px-4 pb-1.5 text-[10.5px] text-ink-45">
         <span className="flex-1 min-w-0" />
-        <span className="w-14 sm:w-16 text-right">Raw QA</span>
-        <span className="w-14 sm:w-16 text-right">Trainer</span>
-        {/* Below sm the Gap steps aside rather than squeezing the name down to
-            "Mo...". Both of its operands are on the same row, so nothing is
-            lost that the reader cannot see; a representative nobody can
-            identify is the worse failure. */}
-        <span className="hidden sm:block w-20 text-right">Gap</span>
+        <span className="w-16 text-right">Raw QA</span>
+        <span className="w-16 text-right">Trainer</span>
+        <span className="w-20 text-right">Gap</span>
         <span className="w-5" />
       </div>
 
@@ -125,81 +123,111 @@ export function RepPerformanceSummary({
             ? rawScores[r.representative_id] ?? null
             : null;
           const gap = scoreGap(rawScore, r.score);
+
+          const rawText = rawScore === null ? "\u2014" : `${rawScore}%`;
+          const trainerText = r.score === null ? "\u2014" : `${r.score}%`;
+          const rawTitle = rawScore === null
+            ? "No submitted Raw QA observation"
+            : "Raw QA: criteria met \u00F7 criteria assessed";
+          const trainerTitle = r.evaluations === 0
+            ? "No completed calibration"
+            : `${r.evaluations} evaluation${r.evaluations === 1 ? "" : "s"}`;
+          const gapTitle = gap === null
+            ? "Needs both a Raw QA observation and a calibration"
+            : "Raw QA minus Trainer, in percentage points";
+          const trendTitle = trend === "unknown"
+            ? "Not enough evaluations to read a trend"
+            : undefined;
+          const trendGlyph = r.evaluations === 0
+            ? "\u00B7"
+            : trend === "up"
+              ? "\u2191"
+              : trend === "down"
+                ? "\u2193"
+                : trend === "flat"
+                  ? "\u2192"
+                  : "\u00B7";
+          const trendColour =
+            trend === "up" ? "#1F7A4D" : trend === "down" ? "#AC3A2A" : "#6B6F68";
+
+          const name = (
+            <>
+              {r.representative_name}
+              {r.is_inactive && (
+                <span className="text-[11px] text-ink-45 ml-2">{r.status}</span>
+              )}
+              {r.evaluations === 0 && rawScore === null && (
+                <span
+                  className="text-[11px] text-ink-45 ml-2"
+                  title="On the representative roster, but neither observed nor evaluated yet"
+                >
+                  &#9675; not yet assessed
+                </span>
+              )}
+            </>
+          );
+
           return (
             <li key={r.representative_id}>
               <button
                 onClick={() => onOpen(r.representative_id)}
-                className="w-full text-left px-4 py-2.5 hover:bg-ground flex items-center gap-2 sm:gap-4"
+                className="w-full text-left px-4 py-2.5 hover:bg-ground"
               >
-                <span className="flex-1 min-w-0 text-[14px] truncate">
-                  {r.representative_name}
-                  {r.is_inactive && (
-                    <span className="text-[11px] text-ink-45 ml-2">{r.status}</span>
-                  )}
-                  {r.evaluations === 0 && rawScore === null && (
-                    <span
-                      className="text-[11px] text-ink-45 ml-2"
-                      title="On the representative roster, but neither observed nor evaluated yet"
-                    >
-                      &#9675; not yet assessed
+                {/* Wide: one row, four aligned columns. Counts live in the
+                    tooltips because the columns already earn their width. */}
+                <span className="hidden sm:flex items-center gap-4">
+                  <span className="flex-1 min-w-0 text-[14px] truncate">{name}</span>
+                  <span className="font-mono text-[14px] w-16 text-right" title={rawTitle}>
+                    {rawText}
+                  </span>
+                  <span className="font-mono text-[14px] w-16 text-right" title={trainerTitle}>
+                    {trainerText}
+                  </span>
+                  <span
+                    className="font-mono text-[13px] w-20 text-right whitespace-nowrap text-ink-70"
+                    title={gapTitle}
+                  >
+                    {formatGap(gap)}
+                  </span>
+                  <span
+                    className="w-5 text-center text-[13px]"
+                    title={trendTitle}
+                    style={{ color: trendColour }}
+                  >
+                    {trendGlyph}
+                  </span>
+                </span>
+
+                {/* Narrow: the row stacks rather than dropping a figure. An
+                    earlier draft hid the Gap below sm to make the columns fit;
+                    that traded away an approved measurement to preserve a
+                    layout, which is the wrong way round. The name gets its own
+                    line — never truncated — and all four figures follow in a
+                    two-column block, each one labelled. */}
+                <span className="sm:hidden block">
+                  <span className="block text-[14px]">{name}</span>
+                  <span className="mt-1.5 grid grid-cols-2 gap-x-4 gap-y-0.5 text-[12px] text-ink-45">
+                    <span title={rawTitle}>
+                      Raw QA{" "}
+                      <span className="font-mono text-[13px] text-ink">{rawText}</span>
                     </span>
-                  )}
-                </span>
-                {/* Counts move to the tooltip: three numeric columns already
-                    earn their width, and the sample size matters most when
-                    someone is comparing the two figures. */}
-                <span
-                  className="font-mono text-[14px] w-14 sm:w-16 text-right"
-                  title={
-                    rawScore === null
-                      ? "No submitted Raw QA observation"
-                      : "Raw QA: criteria met ÷ criteria assessed"
-                  }
-                >
-                  {rawScore === null ? "—" : `${rawScore}%`}
-                </span>
-                <span
-                  className="font-mono text-[14px] w-14 sm:w-16 text-right"
-                  title={
-                    r.evaluations === 0
-                      ? "No completed calibration"
-                      : `${r.evaluations} evaluation${r.evaluations === 1 ? "" : "s"}`
-                  }
-                >
-                  {r.score === null ? "—" : `${r.score}%`}
-                </span>
-                <span
-                  className="hidden sm:block font-mono text-[13px] w-20 text-right
-                             whitespace-nowrap text-ink-70"
-                  title={
-                    gap === null
-                      ? "Needs both a Raw QA observation and a calibration"
-                      : "Raw QA minus Trainer, in percentage points"
-                  }
-                >
-                  {formatGap(gap)}
-                </span>
-                <span
-                  className="w-5 text-center text-[13px]"
-                  title={
-                    trend === "unknown"
-                      ? "Not enough evaluations to read a trend"
-                      : undefined
-                  }
-                  style={{
-                    color:
-                      trend === "up" ? "#1F7A4D" : trend === "down" ? "#AC3A2A" : "#6B6F68",
-                  }}
-                >
-                  {r.evaluations === 0
-                    ? "·"
-                    : trend === "up"
-                      ? "↑"
-                      : trend === "down"
-                        ? "↓"
-                        : trend === "flat"
-                          ? "→"
-                          : "·"}
+                    <span title={trainerTitle}>
+                      Trainer{" "}
+                      <span className="font-mono text-[13px] text-ink">{trainerText}</span>
+                    </span>
+                    <span title={gapTitle}>
+                      Gap{" "}
+                      <span className="font-mono text-[13px] text-ink-70 whitespace-nowrap">
+                        {formatGap(gap)}
+                      </span>
+                    </span>
+                    <span title={trendTitle}>
+                      Trend{" "}
+                      <span className="text-[13px]" style={{ color: trendColour }}>
+                        {trendGlyph}
+                      </span>
+                    </span>
+                  </span>
                 </span>
               </button>
             </li>
