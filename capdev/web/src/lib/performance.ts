@@ -260,7 +260,12 @@ export async function unlinkedCalls(): Promise<
  * report anything below six evaluations — with fewer, a single call moves the
  * figure more than any real change in performance would.
  */
-export type TrendDirection = "up" | "down" | "flat" | "unknown";
+/**
+ * "none" is no calibrated evaluation at all — rendered as an em dash, because
+ * there is nothing to say. It is deliberately NOT the same state as one
+ * evaluation, which reads Stable: a single score is a baseline, not an absence.
+ */
+export type TrendDirection = "up" | "down" | "flat" | "none";
 
 /** One calibrated evaluation, as the trend reads it. */
 export interface TrendPoint {
@@ -283,6 +288,13 @@ export interface RepTrend {
   /** current − previous, in percentage points. Null unless both exist. */
   delta: number | null;
   direction: TrendDirection;
+  /**
+   * True when "Stable" is the NEUTRAL BASELINE of a single evaluation rather
+   * than a measured absence of movement. Both read Stable — one score is where
+   * a representative starts, not a failure to have a trend — but only one of
+   * them is a claim that nothing changed, and the tooltip says which.
+   */
+  baseline: boolean;
 }
 
 export const TREND_BAND = 1;
@@ -320,8 +332,16 @@ export function calibratedTrend(points: TrendPoint[]): RepTrend {
   const current = usable[0]?.overall_score ?? null;
   const previous = usable[1]?.overall_score ?? null;
 
-  if (current === null || previous === null) {
-    return { previous, current, delta: null, direction: "unknown" };
+  // Nothing calibrated: an em dash, not a direction.
+  if (current === null) {
+    return { previous: null, current: null, delta: null, direction: "none", baseline: false };
+  }
+
+  // Exactly one: Stable, as the neutral baseline. It asserts no movement was
+  // observed, because none could have been — delta stays null so nothing can
+  // print a change that was never measured.
+  if (previous === null) {
+    return { previous: null, current, delta: null, direction: "flat", baseline: true };
   }
 
   const delta = Math.round((current - previous) * 10) / 10;
@@ -330,6 +350,7 @@ export function calibratedTrend(points: TrendPoint[]): RepTrend {
     current,
     delta,
     direction: delta > TREND_BAND ? "up" : delta < -TREND_BAND ? "down" : "flat",
+    baseline: false,
   };
 }
 

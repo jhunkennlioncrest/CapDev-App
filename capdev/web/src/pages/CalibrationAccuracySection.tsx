@@ -76,7 +76,10 @@ export function CalibrationAccuracySection({
                 <span className="font-mono text-[11px] text-ink-45 w-12 shrink-0">
                   {h.criterion_code}
                 </span>
-                <span className="text-[13.5px] flex-1 min-w-0 truncate text-ink">
+                {/* Wraps rather than truncates. A criterion cut to "Appropriate
+                    Sales H..." is unusable on a phone, and this list exists to
+                    name the criterion. */}
+                <span className="text-[13.5px] flex-1 min-w-0 text-ink leading-snug">
                   {h.criterion_label}
                 </span>
                 <span className="font-mono text-[12px] tabular-nums text-ink-45 shrink-0">

@@ -119,13 +119,13 @@ export function RepPerformanceSummary({
           <span className="w-[4.5rem] text-right" title="Current calibrated score">
             Current
           </span>
-          <span className="w-[8rem]">Performance Trend</span>
+          <span className="w-[7rem]">Trend</span>
         </div>
 
         <ul className="divide-y divide-rule-soft">
           {visible.map((r) => {
             const t: RepTrend = trends[r.representative_id] ??
-              { previous: null, current: null, delta: null, direction: "unknown" };
+              { previous: null, current: null, delta: null, direction: "none", baseline: false };
             const rawScore = r.representative_id in rawScores
               ? rawScores[r.representative_id] ?? null
               : null;
@@ -144,11 +144,13 @@ export function RepPerformanceSummary({
               : "Raw QA minus Trainer, in percentage points";
             const prevText = t.previous === null ? "—" : `${t.previous}%`;
             const currText = t.current === null ? "—" : `${t.current}%`;
-            const trendTitle = t.direction === "unknown"
-              ? "Needs two submitted calibrated evaluations under the active rubric"
-              : `Current minus previous calibrated score: ${
-                  t.delta !== null && t.delta > 0 ? "+" : ""
-                }${t.delta} pts`;
+            const trendTitle = t.direction === "none"
+              ? "No submitted calibrated evaluation under the active rubric yet"
+              : t.baseline
+                ? "Only one calibrated evaluation available; Stable is the neutral baseline."
+                : `Current minus previous calibrated score: ${
+                    t.delta !== null && t.delta > 0 ? "+" : ""
+                  }${t.delta} pts`;
 
             const name = (
               <>
@@ -212,7 +214,7 @@ export function RepPerformanceSummary({
                     >
                       {currText}
                     </span>
-                    <span className="w-[8rem]">
+                    <span className="w-[7rem]">
                       <TrendTag trend={t.direction} title={trendTitle} />
                     </span>
                   </span>

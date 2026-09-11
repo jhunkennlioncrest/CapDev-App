@@ -207,27 +207,32 @@ export function Meter({
 /* Trend                                                                      */
 /* -------------------------------------------------------------------------- */
 
-export type Trend = "up" | "down" | "flat" | "unknown";
+export type Trend = "up" | "down" | "flat" | "none";
 
 const TREND_LABEL: Record<Trend, string> = {
   up: "Improving",
   down: "Declining",
   flat: "Stable",
-  unknown: "No trend yet",
+  none: "No calibrated evaluations yet",
 };
 const TREND_GLYPH: Record<Trend, string> = {
-  up: "↑", down: "↓", flat: "→", unknown: "—",
+  up: "↑", down: "↓", flat: "→", none: "—",
 };
 const TREND_TONE: Record<Trend, string> = {
   up: "text-moss",
   down: "text-clay",
-  // Stable and unknown are both neutral, and deliberately different from each
-  // other: "no movement" and "we cannot say" are not the same answer.
   flat: "text-ink-70",
-  unknown: "text-ink-45",
+  none: "text-ink-45",
 };
 
-/** Glyph AND word, so direction never rests on an arrow's angle or a colour. */
+/**
+ * Glyph AND word, so direction never rests on an arrow's angle or a colour.
+ *
+ * "none" is the exception and deliberately so: with no calibrated evaluation
+ * there is no direction to name, so the cell is an em dash and the explanation
+ * lives in the tooltip and in screen-reader text rather than in a phrase
+ * repeated down every empty row.
+ */
 export function TrendTag({
   trend,
   compact = false,
@@ -243,7 +248,7 @@ export function TrendTag({
       title={title ?? TREND_LABEL[trend]}
     >
       <span aria-hidden="true">{TREND_GLYPH[trend]}</span>
-      {compact ? (
+      {compact || trend === "none" ? (
         <span className="sr-only">{TREND_LABEL[trend]}</span>
       ) : (
         <span>{TREND_LABEL[trend]}</span>

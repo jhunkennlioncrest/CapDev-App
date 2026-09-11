@@ -220,9 +220,11 @@ export function RepPerformance({
                       title={
                         r.evaluations === 0
                           ? undefined
-                          : t?.direction === "unknown" || t === undefined
-                            ? "Needs two submitted calibrated evaluations"
-                            : `Previous ${t.previous}% \u2192 current ${t.current}%`
+                          : t === undefined || t.direction === "none"
+                            ? "No submitted calibrated evaluation under the active rubric yet"
+                            : t.baseline
+                              ? "Only one calibrated evaluation available; Stable is the neutral baseline."
+                              : `Previous ${t.previous}% \u2192 current ${t.current}%`
                       }
                       style={{
                         color:
@@ -306,7 +308,7 @@ export function RepPerformance({
             />
             <Figure
               value={
-                trend.direction === "unknown"
+                trend.direction === "none"
                   ? "—"
                   : `${trend.direction === "up" ? "↑" : trend.direction === "down" ? "↓" : "→"} ${
                       trend.delta === null ? "" : `${Math.abs(trend.delta)} pts`
@@ -332,8 +334,10 @@ export function RepPerformance({
                   not weigh as much as a full one.
                 </>
               )}
-            {trend.direction === "unknown" &&
-              " Trend needs two submitted calibrated evaluations under this rubric."}
+            {trend.direction === "none" &&
+              " No submitted calibrated evaluation under this rubric yet."}
+            {trend.baseline &&
+              " Only one calibrated evaluation so far, so Stable is the neutral baseline."}
           </p>
 
           {criteria.length > 0 && (
