@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
+import { SectionHeading } from "@/components/dash";
 import {
   calibrationAccuracy,
   calibrationDisagreements,
@@ -66,28 +67,31 @@ export function CalibrationAccuracySection({
   if (rows === null) return null;
 
   return (
-    <section className="mt-8">
-      <div className="flex justify-between items-baseline gap-4 flex-wrap mb-1">
-        <h2 className="font-display text-2xl">QA calibration</h2>
-        <p className="font-mono text-[10px] tracking-[0.14em] uppercase text-ink-45">
-          {isReviewerOnly ? "your alignment" : "reviewer alignment"}
-        </p>
-      </div>
-      <p className="text-[13px] text-ink-70 mb-3 max-w-2xl">
-        How often a reviewer&rsquo;s observation matched the trainer&rsquo;s final
-        decision. This is not the representative&rsquo;s score &mdash; a
-        disagreement records where two people read the same call differently.
-      </p>
+    <section className="mt-10">
+      <SectionHeading
+        title="QA calibration"
+        meta={isReviewerOnly ? "Your alignment" : "Reviewer alignment"}
+      />
 
+      {/* 0077 visual pass, presentation only. With nothing measured yet, the
+          section is a heading and two lines: the paragraph explaining what a
+          disagreement means arrives with the data it describes, rather than a
+          dashed box and an essay standing in for a result. */}
       {rows.length === 0 ? (
-        <div className="border border-dashed border-rule rounded bg-card px-5 py-6">
+        <div className="bg-card border border-rule-soft rounded-md px-5 py-4">
           <p className="text-[13.5px] text-ink-70">No completed calibrations yet.</p>
           <p className="text-[12.5px] text-ink-45 mt-1">
-            Accuracy appears once a reviewer&rsquo;s observation has been
-            calibrated and submitted.
+            Alignment appears once an observation has been calibrated and
+            submitted.
           </p>
         </div>
       ) : (
+        <>
+        <p className="text-[13px] text-ink-70 mb-3 max-w-2xl">
+          How often a reviewer&rsquo;s observation matched the trainer&rsquo;s final
+          decision. This is not the representative&rsquo;s score &mdash; a
+          disagreement records where two people read the same call differently.
+        </p>
         <ul className="space-y-2">
           {rows.map((r) => (
             <li key={r.reviewer_id} className="bg-card border border-rule-soft rounded">
@@ -158,6 +162,7 @@ export function CalibrationAccuracySection({
             </li>
           ))}
         </ul>
+        </>
       )}
 
       {/* Where the rubric itself is ambiguous, rather than who is wrong. */}

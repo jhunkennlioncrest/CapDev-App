@@ -119,9 +119,9 @@ export interface SharedPerformance {
    * indistinguishable under RLS, and rendering an unreadable figure as 0%
    * would claim perfect alignment where the truth is "you cannot see this".
    */
-  disagreements: { pct: number; comparisons: number } | null;
+  disagreements: { pct: number; comparisons: number; misaligned: number } | null;
   stages: StageFigure[];
-  nonNegotiables: { pct: number; n: number } | null;
+  nonNegotiables: { pct: number; n: number; passed: number } | null;
 }
 
 /** The five scored stages, in rubric order, with the labels the business uses. */
@@ -272,11 +272,24 @@ export async function sharedPerformance(): Promise<SharedPerformance> {
     // zero-data state rather than a restricted one. A missing row while
     // calibrations DO exist means the read was refused.
     disagreements: align
-      ? { pct: (100 * align.misaligned) / align.comparisons, comparisons: align.comparisons }
+      ? {
+          pct: (100 * align.misaligned) / align.comparisons,
+          comparisons: align.comparisons,
+          // Carried through rather than reconstructed from the percentage:
+          // "2 of 105" is the readable form of the same number the view
+          // already returned. No new query, no new arithmetic.
+          misaligned: align.misaligned,
+        }
       : !alignFailed && evaluatedCount === 0
-        ? { pct: 0, comparisons: 0 }
+        ? { pct: 0, comparisons: 0, misaligned: 0 }
         : null,
     stages: byStage,
-    nonNegotiables: nn.length > 0 ? { pct: (100 * nnPassed) / nn.length, n: nn.length } : null,
+    // nnPassed likewise: already counted above, now also carried, so the card
+    // can say "7 of 8 evaluations passed" without deriving it back out of a
+    // rounded percentage.
+    nonNegotiables:
+      nn.length > 0
+        ? { pct: (100 * nnPassed) / nn.length, n: nn.length, passed: nnPassed }
+        : null,
   };
 }

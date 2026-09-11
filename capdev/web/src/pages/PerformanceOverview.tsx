@@ -3,8 +3,8 @@ import {
   sharedPerformance,
   LOW_SAMPLE,
   type SharedPerformance,
-  type StageFigure,
 } from "@/lib/dashboard";
+import { SectionHeading, StatCard, ScoreCard, Meter } from "@/components/dash";
 
 /**
  * The shared performance picture (0077).
@@ -22,6 +22,24 @@ import {
  *
  * Every figure states its scope. The heading carries it once — all time,
  * current active rubric — rather than repeating it on each number.
+ *
+ * The 0077 visual pass changed how this reads, not what it says. Three things
+ * shape the layout now:
+ *
+ *   1. Volume and performance are separated. Observed, Evaluated and
+ *      Disagreements are counts and a ratio — context. Raw QA and Trainer are
+ *      the two scores the department is actually judged by, so they get their
+ *      own row, more room and the accent. A five-across strip made a count of
+ *      ten look like the equal of a 94.6% score.
+ *
+ *   2. Stages get horizontal room and a bar each. The labels are long and were
+ *      wrapping to three lines in a six-column strip; a meter row fits the
+ *      label, the number and the sample size on one line each.
+ *
+ *   3. Non-Negotiables leaves the stage grid entirely. It was the sixth cell in
+ *      a five-stage row, which invited it to be read — and eventually averaged
+ *      — as a stage score. It is a pass rate over evaluations, not a 0–5 mean
+ *      over criteria, so it now sits in its own panel that says "Pass rate".
  */
 export function PerformanceOverview(): JSX.Element | null {
   const [data, setData] = useState<SharedPerformance | null>(null);
@@ -41,74 +59,107 @@ export function PerformanceOverview(): JSX.Element | null {
   if (data === null) return null;
   if (!data.rubricVersionId) return null;
 
+  const dis = data.disagreements;
+  const nn = data.nonNegotiables;
+
   return (
-    <section className="mt-8">
-      <div className="flex justify-between items-baseline gap-4 mb-2.5">
-        <h2 className="font-mono text-[10px] tracking-[0.14em] uppercase text-ink-45">
-          Performance
-        </h2>
-        <span className="font-mono text-[10px] tracking-[0.12em] uppercase text-ink-45">
-          All time &middot; Rubric v{data.rubricLabel}
-        </span>
-      </div>
-
-      {/* Work completion. Counts, not scores — kept visually apart from the
-          percentages below so the two are never read as the same kind of
-          number. */}
-      {/* gap-px over a rule-coloured ground draws the separators, instead of a
-          border on each cell. A per-cell border-r is only correct while the
-          grid never wraps: at two columns the right-hand cell of every row but
-          the last kept a rule floating at the card's edge. The gap follows the
-          real grid at every breakpoint, and separates the wrapped rows too. */}
-      <div className="bg-rule-soft border border-rule-soft rounded overflow-hidden grid gap-px grid-cols-2 sm:grid-cols-5">
-        <Figure value={String(data.observedCount)} caption="Observed" detail="submitted Raw QA observations" />
-        <Figure value={String(data.evaluatedCount)} caption="Evaluated" detail="submitted calibrated evaluations" />
-        <Figure value={pct(data.observedPct)} caption="Observed %" detail="Raw QA, criteria met" />
-        <Figure value={pct(data.evaluatedPct)} caption="Evaluated %" detail="QA Trainer, criteria met" />
-        <Figure
-          value={data.disagreements === null ? "—" : pct(data.disagreements.pct)}
-          caption="Disagreements"
-          detail={
-            data.disagreements === null
-              ? "restricted"
-              : data.disagreements.comparisons === 0
-                ? "no comparisons yet"
-                : `${data.disagreements.comparisons} comparisons`
-          }
+    <>
+      <section className="mt-10">
+        <SectionHeading
+          title="Team performance"
+          meta={`All time · Rubric v${data.rubricLabel}`}
         />
-        {/* Five figures in two columns leave one slot empty, and the ground
-            that draws the separators would show through it as a grey block.
-            A blank card cell fills it. Only needed below sm: at five columns
-            the row is exactly full, and the stage grid's six figures divide
-            evenly into two, three and six. */}
-        <div className="bg-card sm:hidden" aria-hidden="true" />
-      </div>
 
-      <h3 className="font-mono text-[10px] tracking-[0.14em] uppercase text-ink-45 mt-6 mb-2.5">
-        Stage performance
-        <span className="ml-2 normal-case tracking-normal text-[11px]">
-          QA Trainer scoring
-        </span>
-      </h3>
-      <div className="bg-rule-soft border border-rule-soft rounded overflow-hidden grid gap-px grid-cols-2 sm:grid-cols-3 lg:grid-cols-6">
-        {data.stages.map((s) => (
-          <Figure key={s.key} value={pct(s.pct)} caption={s.label} detail={sample(s)} />
-        ))}
-        {/* Beside the stages, labelled differently, because it is a different
-            kind of measurement. The Non-Negotiables are pass or fail — there is
-            no 0-5 score behind this number and calling it a stage score would
-            invite it to be averaged with ones that have. */}
-        <Figure
-          value={data.nonNegotiables === null ? "—" : pct(data.nonNegotiables.pct)}
-          caption="Non-Negotiables pass rate"
-          detail={
-            data.nonNegotiables === null
-              ? "no results yet"
-              : sample({ n: data.nonNegotiables.n } as StageFigure)
-          }
-        />
-      </div>
-    </section>
+        {/* Volume. Counts and a ratio, deliberately smaller than the scores
+            below — they say how much work there is to judge, not how good it
+            was. */}
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+          <StatCard
+            label="Observed"
+            value={String(data.observedCount)}
+            detail="submitted Raw QA observations"
+          />
+          <StatCard
+            label="Evaluated"
+            value={String(data.evaluatedCount)}
+            detail="submitted calibrated evaluations"
+          />
+          <StatCard
+            label="Disagreements"
+            value={dis === null ? "—" : pct(dis.pct)}
+            detail={
+              dis === null
+                ? "restricted"
+                : dis.comparisons === 0
+                  ? "no comparisons yet"
+                  : `${dis.misaligned} of ${dis.comparisons} comparisons`
+            }
+          />
+        </div>
+
+        {/* The two principal scores. Same pooled arithmetic as before — these
+            are rendered larger, not calculated differently — and kept apart
+            from each other by name, because the whole point of 0077 is that
+            Raw QA and Trainer are two assessments and never one blended one. */}
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mt-3">
+          <ScoreCard
+            label="Raw QA performance"
+            value={pct(data.observedPct)}
+            detail="criteria met, across submitted observations"
+          />
+          <ScoreCard
+            label="Trainer performance"
+            value={pct(data.evaluatedPct)}
+            detail="criteria met, across calibrated evaluations"
+          />
+        </div>
+      </section>
+
+      <section className="mt-10">
+        <SectionHeading title="Stage performance" meta="QA Trainer scoring" />
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
+          {data.stages.map((s) => (
+            <Meter
+              key={s.key}
+              label={s.label}
+              pct={s.pct}
+              detail={sample(s.n)}
+              cautioned={s.n > 0 && s.n < LOW_SAMPLE}
+            />
+          ))}
+        </div>
+
+        {/* Its own panel, its own words. A pass rate over evaluations is a
+            different kind of measurement from a mean of 0–5 stage scores, and
+            the previous layout — sixth cell in the stage grid — said the
+            opposite. Nothing about how it is computed has changed. */}
+        <div className="bg-card border border-rule-soft rounded-md px-6 py-5 mt-3">
+          <div className="flex items-baseline justify-between gap-4 flex-wrap">
+            <div>
+              <p className="text-[13.5px] font-medium text-ink">Non-Negotiables</p>
+              <p className="text-[12px] text-ink-45 mt-1">
+                Pass or fail per evaluation — not a stage score
+              </p>
+            </div>
+            <div className="text-right">
+              <p className="font-display text-[30px] leading-none tabular-nums text-ink">
+                {nn === null ? "—" : pct(nn.pct)}
+                {nn !== null && (
+                  <span className="font-sans text-[12.5px] text-ink-45 ml-2 align-middle">
+                    Pass rate
+                  </span>
+                )}
+              </p>
+              <p className="text-[12px] text-ink-45 mt-2">
+                {nn === null
+                  ? "no results yet"
+                  : `${nn.passed} of ${nn.n} evaluation${nn.n === 1 ? "" : "s"} passed`}
+              </p>
+            </div>
+          </div>
+        </div>
+      </section>
+    </>
   );
 }
 
@@ -121,30 +172,7 @@ function pct(v: number | null): string {
  * A percentage without its sample size invites a reader to trust three
  * observations as much as three hundred, so the size is never optional.
  */
-function sample(s: { n: number }): string {
-  if (s.n === 0) return "no data yet";
-  return s.n < LOW_SAMPLE ? `n=${s.n} · limited data` : `n=${s.n}`;
-}
-
-/**
- * The personal dashboard's Figure, with the separator moved to the grid.
- * Same type, same spacing, same three lines; only the rule is drawn elsewhere,
- * because that Figure lives in a grid that never wraps and these do not.
- */
-function Figure({
-  value,
-  caption,
-  detail,
-}: {
-  value: string;
-  caption: string;
-  detail?: string;
-}): JSX.Element {
-  return (
-    <div className="bg-card px-5 py-4">
-      <span className="font-display text-2xl block leading-none mb-1">{value}</span>
-      <span className="text-[11.5px] text-ink-45 block">{caption}</span>
-      {detail && <span className="text-[10.5px] text-ink-45 block mt-0.5">{detail}</span>}
-    </div>
-  );
+function sample(n: number): string {
+  if (n === 0) return "No data yet";
+  return n < LOW_SAMPLE ? `n=${n} · Limited data` : `n=${n}`;
 }

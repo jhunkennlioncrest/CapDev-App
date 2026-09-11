@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from "react";
 import { CalibrationAccuracySection } from "@/pages/CalibrationAccuracySection";
 import { RepPerformanceSummary } from "@/pages/RepPerformanceSummary";
 import { PerformanceOverview } from "@/pages/PerformanceOverview";
+import { SectionHeading } from "@/components/dash";
 import { getQueue } from "@/lib/evaluation";
 import { getRawWorklist } from "@/lib/workflow";
 import { listRepository, statsFrom } from "@/lib/repository";
@@ -89,21 +90,29 @@ export function HomeDashboard({
 
   return (
     <div className="max-w-6xl mx-auto px-6 pb-20">
-      <header className="pt-8 pb-6">
-        <h1 className="font-display text-3xl">
+      <header className="pt-10 pb-7">
+        <h1 className="font-display text-[32px] leading-tight">
           {greeting}, {session.person.display_name?.split(" ")[0] ?? "there"}
         </h1>
+        <p className="text-[13px] text-ink-45 mt-1.5">
+          Capability &amp; Development &mdash; quality overview
+        </p>
       </header>
 
       {counts === null ? (
         <p className="text-ink-45 text-sm">Loading&hellip;</p>
       ) : (
         <>
-          <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-2.5">
+          {/* Operational, and deliberately not the loudest thing on the page:
+              these cards say what is queued for one person, while the sections
+              below say how the department is doing. A role with no QA queue
+              gets no heading at all rather than an empty one. */}
+          {(canReview || canCalibrate) && <SectionHeading title="Your work" />}
+          <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-3">
             {canReview && (
               <Card
                 value={counts.pendingRaw}
-                label="waiting for your review"
+                label="Waiting for your review"
                 action="Open Raw QA"
                 onClick={() => onNavigate("rawqa")}
                 emphasis={counts.pendingRaw > 0}
@@ -112,7 +121,7 @@ export function HomeDashboard({
             {canCalibrate && (
               <Card
                 value={counts.waitingCalibration}
-                label="ready for calibration"
+                label="Ready for calibration"
                 action="Open Calibration"
                 onClick={() => onNavigate("calibration")}
                 emphasis={counts.waitingCalibration > 0}
@@ -138,8 +147,8 @@ export function HomeDashboard({
                 }
                 label={
                   canCalibrate
-                    ? "calibrations you completed this week"
-                    : "observations you completed this week"
+                    ? "Calibrations this week"
+                    : "Observations this week"
                 }
                 action="See the library"
                 onClick={() => onNavigate("library")}
@@ -152,28 +161,32 @@ export function HomeDashboard({
               score and the second is not something they can create, so neither
               appears there. */}
           {canCalibrate && (
-            <div className="grid grid-cols-2 border-y border-rule mt-7">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mt-3">
+              {/* Renamed in the 0077 visual pass, and not for tidiness. This
+                  is statsFrom().averageScore: the MEAN of per-evaluation
+                  overall_score. Team performance's "Trainer performance" is a
+                  different calculation — pooled criteria met over criteria
+                  assessed — so the two can legitimately differ. Calling both
+                  of them "representative performance" on one page, which is
+                  what the old caption did, invited the reader to treat a
+                  disagreement between them as an error. Neither number
+                  changed; only this label. */}
               <Figure
                 value={counts.averageScore === null ? "—" : `${counts.averageScore}%`}
-                caption="representative performance"
+                caption="Average evaluation score"
                 detail={
                   counts.averageScore === null
                     ? "no completed evaluations yet"
-                    : `${counts.completedEvaluations} completed evaluation${counts.completedEvaluations === 1 ? "" : "s"}`
+                    : `mean of ${counts.completedEvaluations} completed evaluation${counts.completedEvaluations === 1 ? "" : "s"}`
                 }
               />
               <Figure
                 value={String(counts.moments)}
-                caption="active teaching moments"
+                caption="Active teaching moments"
                 detail="in the Library"
               />
             </div>
           )}
-
-          {/* A different question from "average score" above: that is the
-              representative's result, this is how closely the reviewer's
-              observations matched the trainer's final decisions. */}
-          <CalibrationAccuracySection session={session} />
 
           {/* "Recent observations" and "Recent calibrations" used to sit here.
               They were a log, not a decision: a reviewer already knows what
@@ -196,6 +209,14 @@ export function HomeDashboard({
           construction rather than by upkeep. It grants nothing — calibration,
           submission and management authority are elsewhere and untouched. */}
       {canSeePerformance && <PerformanceOverview />}
+
+      {/* A different question from the scores above: those are the
+          representative's result, this is how closely a reviewer's observation
+          matched the trainer's final decision. Moved below Team and Stage
+          performance in the 0077 visual pass so the page reads personal work →
+          department scores → alignment → people, rather than interrupting that
+          order in the middle. */}
+      <CalibrationAccuracySection session={session} />
 
       {canSeePerformance && onOpenRepPerformance && (
         <RepPerformanceSummary onOpen={onOpenRepPerformance} />
@@ -221,13 +242,15 @@ function Card({
   return (
     <button
       onClick={onClick}
-      className={`text-left bg-card border rounded px-5 py-4 hover:bg-ground-2 transition-colors ${
-        emphasis ? "border-ink" : "border-rule-soft"
+      className={`text-left bg-card border rounded-md px-5 py-4 hover:bg-ground-2 transition-colors ${
+        emphasis ? "border-moss" : "border-rule-soft"
       }`}
     >
-      <span className="font-display text-4xl block leading-none">{value}</span>
-      <span className="text-[13px] text-ink-70 block mt-1.5">{label}</span>
-      <span className="text-[12px] text-ink-45 block mt-2 underline underline-offset-2">
+      <span className="text-[12.5px] text-ink-70 block">{label}</span>
+      <span className="font-display text-[30px] block leading-none mt-2 tabular-nums">
+        {value}
+      </span>
+      <span className="text-[12px] text-ink-45 block mt-2.5 underline underline-offset-2">
         {action}
       </span>
     </button>
@@ -245,10 +268,12 @@ function Figure({
   detail?: string;
 }): JSX.Element {
   return (
-    <div className="py-4 pr-5 border-r border-rule-soft last:border-r-0">
-      <span className="font-display text-2xl block leading-none mb-1">{value}</span>
-      <span className="text-[11.5px] text-ink-45 block">{caption}</span>
-      {detail && <span className="text-[10.5px] text-ink-45 block mt-0.5">{detail}</span>}
+    <div className="bg-card border border-rule-soft rounded-md px-5 py-4">
+      <span className="text-[12.5px] text-ink-45 block">{caption}</span>
+      <span className="font-display text-[26px] block leading-none mt-2 tabular-nums">
+        {value}
+      </span>
+      {detail && <span className="text-[12px] text-ink-45 block mt-2">{detail}</span>}
     </div>
   );
 }
