@@ -4,7 +4,7 @@ import {
   LOW_SAMPLE,
   type SharedPerformance,
 } from "@/lib/dashboard";
-import { SectionHeading, StatCard, ScoreCard, Meter } from "@/components/dash";
+import { SectionHeading, StatCard, Meter } from "@/components/dash";
 
 /**
  * The shared performance picture (0077).
@@ -64,27 +64,53 @@ export function PerformanceOverview(): JSX.Element | null {
 
   return (
     <>
-      <section className="mt-10">
+      <section className="mt-8">
         <SectionHeading
           title="Team performance"
           meta={`All time · Rubric v${data.rubricLabel}`}
         />
 
-        {/* Volume. Counts and a ratio, deliberately smaller than the scores
-            below — they say how much work there is to judge, not how good it
-            was. */}
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+        {/* Five figures in one row, volume then the two scores then alignment.
+            The scores carry the accent so the eye finds them first; nothing
+            here is tinted by how large it is.
+
+            Observed Score and Calibrated Score are the REPRESENTATIVES'
+            performance as measured by two different assessment sources. They
+            are not a Raw QA reviewer's score and not a QA Trainer's score —
+            the old "Raw QA performance" / "Trainer performance" captions read
+            as though they were, which is why they are gone. Same pooled
+            arithmetic as before, renamed only. */}
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3">
           <StatCard
+            icon="clipboard"
             label="Observed"
             value={String(data.observedCount)}
             detail="submitted Raw QA observations"
           />
           <StatCard
+            icon="clock"
             label="Evaluated"
             value={String(data.evaluatedCount)}
             detail="submitted calibrated evaluations"
           />
           <StatCard
+            icon="bars"
+            accent
+            label="Observed Score"
+            value={pct(data.observedPct)}
+            detail="Criteria met across submitted Raw QA observations"
+          />
+          <StatCard
+            icon="target"
+            accent
+            label="Calibrated Score"
+            value={pct(data.evaluatedPct)}
+            detail="Criteria met across submitted QA Trainer evaluations"
+          />
+          {/* Not tinted red. 1.9% is a low disagreement rate — a good result —
+              and colouring it as an alarm would assert the opposite. */}
+          <StatCard
+            icon="compare"
             label="Disagreements"
             value={dis === null ? "—" : pct(dis.pct)}
             detail={
@@ -96,67 +122,29 @@ export function PerformanceOverview(): JSX.Element | null {
             }
           />
         </div>
-
-        {/* The two principal scores. Same pooled arithmetic as before — these
-            are rendered larger, not calculated differently — and kept apart
-            from each other by name, because the whole point of 0077 is that
-            Raw QA and Trainer are two assessments and never one blended one. */}
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mt-3">
-          <ScoreCard
-            label="Raw QA performance"
-            value={pct(data.observedPct)}
-            detail="criteria met, across submitted observations"
-          />
-          <ScoreCard
-            label="Trainer performance"
-            value={pct(data.evaluatedPct)}
-            detail="criteria met, across calibrated evaluations"
-          />
-        </div>
       </section>
 
-      <section className="mt-10">
+      <section className="mt-8">
         <SectionHeading title="Stage performance" meta="QA Trainer scoring" />
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
-          {data.stages.map((s) => (
-            <Meter
-              key={s.key}
-              label={s.label}
-              pct={s.pct}
-              detail={sample(s.n)}
-              cautioned={s.n > 0 && s.n < LOW_SAMPLE}
-            />
-          ))}
-        </div>
 
-        {/* Its own panel, its own words. A pass rate over evaluations is a
-            different kind of measurement from a mean of 0–5 stage scores, and
-            the previous layout — sixth cell in the stage grid — said the
-            opposite. Nothing about how it is computed has changed. */}
-        <div className="bg-card border border-rule-soft rounded-md px-6 py-5 mt-3">
-          <div className="flex items-baseline justify-between gap-4 flex-wrap">
-            <div>
-              <p className="text-[13.5px] font-medium text-ink">Non-Negotiables</p>
-              <p className="text-[12px] text-ink-45 mt-1">
-                Pass or fail per evaluation — not a stage score
-              </p>
-            </div>
-            <div className="text-right">
-              <p className="font-display text-[30px] leading-none tabular-nums text-ink">
-                {nn === null ? "—" : pct(nn.pct)}
-                {nn !== null && (
-                  <span className="font-sans text-[12.5px] text-ink-45 ml-2 align-middle">
-                    Pass rate
-                  </span>
-                )}
-              </p>
-              <p className="text-[12px] text-ink-45 mt-2">
-                {nn === null
-                  ? "no results yet"
-                  : `${nn.passed} of ${nn.n} evaluation${nn.n === 1 ? "" : "s"} passed`}
-              </p>
-            </div>
-          </div>
+        {/* Six cells, and the sixth is deliberately not a stage. Non-Negotiables
+            keeps the row's shape so the eye can still compare left to right,
+            and changes surface, chip and footnote so it cannot be mistaken for
+            — or averaged with — a 0–5 stage score. */}
+        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
+          {data.stages.map((s) => (
+            <Meter key={s.key} label={s.label} pct={s.pct} detail={sample(s.n)} />
+          ))}
+          <Meter
+            distinct
+            label="Non-Negotiables"
+            pct={nn === null ? null : nn.pct}
+            detail={
+              nn === null
+                ? "No results yet"
+                : `${nn.passed} of ${nn.n} evaluation${nn.n === 1 ? "" : "s"} passed`
+            }
+          />
         </div>
       </section>
     </>

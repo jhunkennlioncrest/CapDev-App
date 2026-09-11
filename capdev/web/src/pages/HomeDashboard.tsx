@@ -2,7 +2,7 @@ import { useCallback, useEffect, useState } from "react";
 import { CalibrationAccuracySection } from "@/pages/CalibrationAccuracySection";
 import { RepPerformanceSummary } from "@/pages/RepPerformanceSummary";
 import { PerformanceOverview } from "@/pages/PerformanceOverview";
-import { SectionHeading } from "@/components/dash";
+import { SectionHeading, Icon } from "@/components/dash";
 import { getQueue } from "@/lib/evaluation";
 import { getRawWorklist } from "@/lib/workflow";
 import { listRepository, statsFrom } from "@/lib/repository";
@@ -85,18 +85,26 @@ export function HomeDashboard({
     void load();
   }, [load]);
 
-  const hour = new Date().getHours();
+  const now = new Date();
+  const today = now.toLocaleDateString("en-US", {
+    weekday: "short", month: "short", day: "numeric", year: "numeric",
+  });
+  const hour = now.getHours();
   const greeting = hour < 12 ? "Good morning" : hour < 18 ? "Good afternoon" : "Good evening";
 
   return (
     <div className="max-w-6xl mx-auto px-6 pb-20">
-      <header className="pt-10 pb-7">
-        <h1 className="font-display text-[32px] leading-tight">
-          {greeting}, {session.person.display_name?.split(" ")[0] ?? "there"}
-        </h1>
-        <p className="text-[13px] text-ink-45 mt-1.5">
-          Capability &amp; Development &mdash; quality overview
-        </p>
+      <header className="pt-10 pb-7 flex items-start justify-between gap-6 flex-wrap">
+        <div>
+          <h1 className="font-display text-[32px] leading-tight">
+            {greeting}, {session.person.display_name?.split(" ")[0] ?? "there"}
+          </h1>
+          <p className="text-[13px] text-ink-45 mt-1.5">
+            Here&rsquo;s what&rsquo;s happening with your QA work and team
+            performance.
+          </p>
+        </div>
+        <p className="text-[12px] text-ink-45 pt-2">{today}</p>
       </header>
 
       {counts === null ? (
@@ -111,6 +119,7 @@ export function HomeDashboard({
           <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-3">
             {canReview && (
               <Card
+                icon="inbox"
                 value={counts.pendingRaw}
                 label="Waiting for your review"
                 action="Open Raw QA"
@@ -120,6 +129,7 @@ export function HomeDashboard({
             )}
             {canCalibrate && (
               <Card
+                icon="scales"
                 value={counts.waitingCalibration}
                 label="Ready for calibration"
                 action="Open Calibration"
@@ -140,6 +150,7 @@ export function HomeDashboard({
                 the shared Performance section below instead. */}
             {(canReview || canCalibrate) && (
               <Card
+                icon="check"
                 value={
                   canCalibrate
                     ? (trainer?.completedThisWeek ?? 0)
@@ -172,6 +183,7 @@ export function HomeDashboard({
                   disagreement between them as an error. Neither number
                   changed; only this label. */}
               <Figure
+                icon="clipboard"
                 value={counts.averageScore === null ? "—" : `${counts.averageScore}%`}
                 caption="Average evaluation score"
                 detail={
@@ -181,6 +193,7 @@ export function HomeDashboard({
                 }
               />
               <Figure
+                icon="bars"
                 value={String(counts.moments)}
                 caption="Active teaching moments"
                 detail="in the Library"
@@ -227,12 +240,14 @@ export function HomeDashboard({
 }
 
 function Card({
+  icon,
   value,
   label,
   action,
   onClick,
   emphasis = false,
 }: {
+  icon: "inbox" | "scales" | "check";
   value: number;
   label: string;
   action: string;
@@ -242,38 +257,52 @@ function Card({
   return (
     <button
       onClick={onClick}
-      className={`text-left bg-card border rounded-md px-5 py-4 hover:bg-ground-2 transition-colors ${
+      className={`text-left bg-card border rounded-lg px-5 py-4 hover:bg-ground-2 transition-colors ${
         emphasis ? "border-moss" : "border-rule-soft"
       }`}
     >
-      <span className="text-[12.5px] text-ink-70 block">{label}</span>
-      <span className="font-display text-[30px] block leading-none mt-2 tabular-nums">
-        {value}
-      </span>
-      <span className="text-[12px] text-ink-45 block mt-2.5 underline underline-offset-2">
-        {action}
+      <span className="flex items-start gap-3.5">
+        <span className="inline-flex items-center justify-center w-9 h-9 rounded-lg bg-ground-2 text-ink-45 shrink-0 mt-0.5">
+          <Icon name={icon} />
+        </span>
+        <span className="block min-w-0">
+          <span className="font-display text-[30px] block leading-none tabular-nums">
+            {value}
+          </span>
+          <span className="text-[12.5px] text-ink-70 block mt-1.5">{label}</span>
+          <span className="text-[12px] text-ink-45 block mt-2 underline underline-offset-2">
+            {action} &rarr;
+          </span>
+        </span>
       </span>
     </button>
   );
 }
 
 function Figure({
+  icon,
   value,
   caption,
   detail,
 }: {
+  icon: "clipboard" | "bars";
   value: string;
   caption: string;
   /** What the number covers. Every figure states its own scope. */
   detail?: string;
 }): JSX.Element {
   return (
-    <div className="bg-card border border-rule-soft rounded-md px-5 py-4">
-      <span className="text-[12.5px] text-ink-45 block">{caption}</span>
-      <span className="font-display text-[26px] block leading-none mt-2 tabular-nums">
+    <div className="bg-card border border-rule-soft rounded-lg px-5 py-4">
+      <span className="flex items-center gap-2.5">
+        <span className="inline-flex items-center justify-center w-9 h-9 rounded-lg bg-ground-2 text-ink-45 shrink-0">
+          <Icon name={icon} />
+        </span>
+        <span className="text-[12.5px] text-ink-70">{caption}</span>
+      </span>
+      <span className="font-display text-[26px] block leading-none mt-3 tabular-nums">
         {value}
       </span>
-      {detail && <span className="text-[12px] text-ink-45 block mt-2">{detail}</span>}
+      {detail && <span className="text-[11.5px] text-ink-45 block mt-2">{detail}</span>}
     </div>
   );
 }

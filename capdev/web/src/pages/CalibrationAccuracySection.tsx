@@ -67,7 +67,7 @@ export function CalibrationAccuracySection({
   if (rows === null) return null;
 
   return (
-    <section className="mt-10">
+    <section className="mt-8">
       <SectionHeading
         title="QA calibration"
         meta={isReviewerOnly ? "Your alignment" : "Reviewer alignment"}
@@ -78,7 +78,7 @@ export function CalibrationAccuracySection({
           disagreement means arrives with the data it describes, rather than a
           dashed box and an essay standing in for a result. */}
       {rows.length === 0 ? (
-        <div className="bg-card border border-rule-soft rounded-md px-5 py-4">
+        <div className="bg-card border border-rule-soft rounded-lg px-5 py-4">
           <p className="text-[13.5px] text-ink-70">No completed calibrations yet.</p>
           <p className="text-[12.5px] text-ink-45 mt-1">
             Alignment appears once an observation has been calibrated and

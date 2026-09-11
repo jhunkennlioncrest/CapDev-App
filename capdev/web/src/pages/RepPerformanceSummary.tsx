@@ -8,7 +8,7 @@ import {
   type RepPerformance,
 } from "@/lib/performance";
 import { listVersions } from "@/lib/rubricAdmin";
-import { SectionHeading, TrendTag } from "@/components/dash";
+import { SectionHeading, TrendTag, Avatar, Toggle } from "@/components/dash";
 
 /**
  * The compact Dashboard summary.
@@ -78,7 +78,7 @@ export function RepPerformanceSummary({
   const hiddenCount = rows.length - rows.filter((r) => !r.is_inactive).length;
 
   return (
-    <section className="mt-10">
+    <section className="mt-8">
       <SectionHeading
         title="Representative performance"
         meta={versionLabel ? `Rubric v${versionLabel}` : undefined}
@@ -87,12 +87,11 @@ export function RepPerformanceSummary({
             does not imply there are former representatives when there are
             none. */}
         {hiddenCount > 0 && (
-          <button
-            onClick={() => setShowInactive((v) => !v)}
-            className="text-[12px] text-ink-45 underline underline-offset-2 hover:text-ink"
-          >
-            {showInactive ? "Hide inactive" : `Show inactive (${hiddenCount})`}
-          </button>
+          <Toggle
+            on={showInactive}
+            onChange={setShowInactive}
+            label={`Show inactive (${hiddenCount})`}
+          />
         )}
       </SectionHeading>
 
@@ -101,7 +100,8 @@ export function RepPerformanceSummary({
             everything else, one hairline under them, and no border around
             individual cells — the columns are already aligned, so ruling every
             box only adds noise. */}
-        <div className="hidden sm:flex items-baseline gap-4 px-5 py-2.5 border-b border-rule-soft text-[11.5px] text-ink-45">
+        <div className="hidden sm:flex items-baseline gap-4 px-5 py-3 border-b border-rule-soft text-[11.5px] text-ink-45">
+          <span className="w-7 shrink-0" aria-hidden="true" />
           <span className="flex-1 min-w-0">Representative</span>
           <span className="w-[4.5rem] text-right">Raw QA</span>
           <span className="w-[4.5rem] text-right">Trainer</span>
@@ -159,6 +159,7 @@ export function RepPerformanceSummary({
                 >
                   {/* Wide: one row, columns aligned with the captions above. */}
                   <span className="hidden sm:flex items-center gap-4">
+                    <Avatar name={r.representative_name} />
                     <span className="flex-1 min-w-0 text-[14.5px] font-medium text-ink truncate">
                       {name}
                     </span>
@@ -189,7 +190,10 @@ export function RepPerformanceSummary({
                       name gets its own line — never truncated — and all four
                       figures follow in a two-column block, each one labelled. */}
                   <span className="sm:hidden block">
-                    <span className="block text-[14.5px] font-medium text-ink">{name}</span>
+                    <span className="flex items-center gap-2.5">
+                      <Avatar name={r.representative_name} />
+                      <span className="text-[14.5px] font-medium text-ink">{name}</span>
+                    </span>
                     <span className="mt-2 grid grid-cols-2 gap-x-4 gap-y-1 text-[12px] text-ink-45">
                       <span title={rawTitle}>
                         Raw QA{" "}
