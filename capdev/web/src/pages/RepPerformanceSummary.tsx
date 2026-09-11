@@ -2,7 +2,8 @@ import { useEffect, useState } from "react";
 import {
   listRepPerformance,
   listRepRawObservationPerformance,
-  trendsForRoster,
+  calibratedTrends,
+  type RepTrend,
   formatGap,
   scoreGap,
   type RepPerformance,
@@ -32,7 +33,7 @@ export function RepPerformanceSummary({
   const [rows, setRows] = useState<RepPerformance[] | null>(null);
   /** Raw QA score by representative id. Absent means never observed. */
   const [rawScores, setRawScores] = useState<Record<string, number | null>>({});
-  const [trends, setTrends] = useState<Record<string, "up" | "down" | "flat" | "unknown">>({});
+  const [trends, setTrends] = useState<Record<string, RepTrend>>({});
   const [showInactive, setShowInactive] = useState(false);
   const [versionLabel, setVersionLabel] = useState<string>("");
 
@@ -58,13 +59,13 @@ export function RepPerformanceSummary({
         ),
       );
 
-      // Trend covers the whole roster, in one batched read rather than a
-      // request per representative. Only those with evaluations are asked
-      // about — there is nothing to trend for the rest, and anyone the read
-      // does not answer for falls to the "unknown" dot below.
+      // Calibrated history for the whole roster, newest-first and stopping as
+      // soon as everyone has the two evaluations the trend needs. Only those
+      // with calibrations are asked about; anyone the read does not answer for
+      // falls to "No trend yet" below.
       const scored = all.filter((r) => r.evaluations > 0);
       setTrends(
-        await trendsForRoster(scored.map((r) => r.representative_id), active.id),
+        await calibratedTrends(scored.map((r) => r.representative_id), active.id),
       );
     })();
   }, []);
@@ -100,18 +101,31 @@ export function RepPerformanceSummary({
             everything else, one hairline under them, and no border around
             individual cells — the columns are already aligned, so ruling every
             box only adds noise. */}
+        {/* Two groups, and the rule between them is the whole point. Raw QA,
+            Trainer and Gap compare two ASSESSMENTS of the same calls. Previous,
+            Current and Performance Trend compare the representative against
+            THEMSELVES over time. Sitting in one undifferentiated row, Trend
+            read as though it came out of the Gap; it never did. */}
         <div className="hidden sm:flex items-baseline gap-4 px-5 py-3 border-b border-rule-soft text-[11.5px] text-ink-45">
           <span className="w-7 shrink-0" aria-hidden="true" />
           <span className="flex-1 min-w-0">Representative</span>
           <span className="w-[4.5rem] text-right">Raw QA</span>
           <span className="w-[4.5rem] text-right">Trainer</span>
           <span className="w-[5rem] text-right">Gap</span>
-          <span className="w-[7.5rem]">Trend</span>
+          <span className="w-px self-stretch bg-rule-soft mx-1" aria-hidden="true" />
+          <span className="w-[4.5rem] text-right" title="Previous calibrated score">
+            Previous
+          </span>
+          <span className="w-[4.5rem] text-right" title="Current calibrated score">
+            Current
+          </span>
+          <span className="w-[8rem]">Performance Trend</span>
         </div>
 
         <ul className="divide-y divide-rule-soft">
           {visible.map((r) => {
-            const trend = trends[r.representative_id] ?? "unknown";
+            const t: RepTrend = trends[r.representative_id] ??
+              { previous: null, current: null, delta: null, direction: "unknown" };
             const rawScore = r.representative_id in rawScores
               ? rawScores[r.representative_id] ?? null
               : null;
@@ -128,9 +142,13 @@ export function RepPerformanceSummary({
             const gapTitle = gap === null
               ? "Needs both a Raw QA observation and a calibration"
               : "Raw QA minus Trainer, in percentage points";
-            const trendTitle = trend === "unknown"
-              ? "Not enough evaluations to read a trend"
-              : undefined;
+            const prevText = t.previous === null ? "—" : `${t.previous}%`;
+            const currText = t.current === null ? "—" : `${t.current}%`;
+            const trendTitle = t.direction === "unknown"
+              ? "Needs two submitted calibrated evaluations under the active rubric"
+              : `Current minus previous calibrated score: ${
+                  t.delta !== null && t.delta > 0 ? "+" : ""
+                }${t.delta} pts`;
 
             const name = (
               <>
@@ -181,8 +199,21 @@ export function RepPerformanceSummary({
                     >
                       {formatGap(gap)}
                     </span>
-                    <span className="w-[7.5rem]">
-                      <TrendTag trend={trend} title={trendTitle} />
+                    <span className="w-px self-stretch bg-rule-soft mx-1" aria-hidden="true" />
+                    <span
+                      className="font-mono text-[14px] tabular-nums w-[4.5rem] text-right text-ink-70"
+                      title="Previous calibrated score"
+                    >
+                      {prevText}
+                    </span>
+                    <span
+                      className="font-mono text-[14px] tabular-nums w-[4.5rem] text-right"
+                      title="Current calibrated score"
+                    >
+                      {currText}
+                    </span>
+                    <span className="w-[8rem]">
+                      <TrendTag trend={t.direction} title={trendTitle} />
                     </span>
                   </span>
 
@@ -213,8 +244,20 @@ export function RepPerformanceSummary({
                           {formatGap(gap)}
                         </span>
                       </span>
-                      <span>
-                        <TrendTag trend={trend} title={trendTitle} />
+                      <span title="Previous calibrated score">
+                        Previous{" "}
+                        <span className="font-mono text-[13px] tabular-nums text-ink-70">
+                          {prevText}
+                        </span>
+                      </span>
+                      <span title="Current calibrated score">
+                        Current{" "}
+                        <span className="font-mono text-[13px] tabular-nums text-ink">
+                          {currText}
+                        </span>
+                      </span>
+                      <span className="col-span-2">
+                        Trend <TrendTag trend={t.direction} title={trendTitle} />
                       </span>
                     </span>
                   </span>

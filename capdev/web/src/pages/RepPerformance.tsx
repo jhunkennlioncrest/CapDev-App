@@ -4,8 +4,9 @@ import {
   repCriteria,
   repEvaluations,
   repVariance,
-  trendFrom,
-  trendsForRoster,
+  calibratedTrend,
+  calibratedTrends,
+  type RepTrend,
   type CriterionPerformance,
   type RepEvaluation,
   type RepPerformance as RepRow,
@@ -39,8 +40,7 @@ export function RepPerformance({
   const [loading, setLoading] = useState(true);
   // Trend for every representative on the roster, not just the selected one.
   // Same shape and same source as the dashboard summary.
-  const [rosterTrends, setRosterTrends] =
-    useState<Record<string, "up" | "down" | "flat" | "unknown">>({});
+  const [rosterTrends, setRosterTrends] = useState<Record<string, RepTrend>>({});
   const [showInactive, setShowInactive] = useState(false);
 
   useEffect(() => {
@@ -77,7 +77,7 @@ export function RepPerformance({
       // which is the right shape when exactly one person is being shown.
       const withEvaluations = all.filter((r) => r.evaluations > 0);
       setRosterTrends(
-        await trendsForRoster(
+        await calibratedTrends(
           withEvaluations.map((r) => r.representative_id),
           versionId,
         ),
@@ -91,7 +91,10 @@ export function RepPerformance({
   }, [load]);
 
   const rep = rows.find((r) => r.representative_id === repId) ?? null;
-  const trend = useMemo(() => trendFrom(evaluations), [evaluations]);
+  // Same definition as the roster, applied to the history already loaded for
+  // this one representative: the two most recent calibrated evaluations. One
+  // definition of "trend" in the application, not two.
+  const trend = useMemo(() => calibratedTrend(evaluations), [evaluations]);
 
   // Inactive representatives stay reachable — the dropdown still lists them and
   // their history is intact — but a former employee is not a current concern,
@@ -217,22 +220,26 @@ export function RepPerformance({
                       title={
                         r.evaluations === 0
                           ? undefined
-                          : t === "unknown"
-                            ? "Not enough evaluations to read a trend"
-                            : undefined
+                          : t?.direction === "unknown" || t === undefined
+                            ? "Needs two submitted calibrated evaluations"
+                            : `Previous ${t.previous}% \u2192 current ${t.current}%`
                       }
                       style={{
                         color:
-                          t === "up" ? "#1F7A4D" : t === "down" ? "#AC3A2A" : "#6B6F68",
+                          t?.direction === "up"
+                            ? "#1F7A4D"
+                            : t?.direction === "down"
+                              ? "#AC3A2A"
+                              : "#6B6F68",
                       }}
                     >
                       {r.evaluations === 0
                         ? "\u2014"
-                        : t === "up"
+                        : t?.direction === "up"
                           ? "\u2191"
-                          : t === "down"
+                          : t?.direction === "down"
                             ? "\u2193"
-                            : t === "flat"
+                            : t?.direction === "flat"
                               ? "\u2192"
                               : "\u00b7"}
                     </span>
@@ -302,7 +309,7 @@ export function RepPerformance({
                 trend.direction === "unknown"
                   ? "—"
                   : `${trend.direction === "up" ? "↑" : trend.direction === "down" ? "↓" : "→"} ${
-                      trend.delta === null ? "" : `${Math.abs(trend.delta)}%`
+                      trend.delta === null ? "" : `${Math.abs(trend.delta)} pts`
                     }`
               }
               caption="trend"
@@ -325,7 +332,8 @@ export function RepPerformance({
                   not weigh as much as a full one.
                 </>
               )}
-            {trend.direction === "unknown" && ` Trend needs six evaluations — ${trend.basis}.`}
+            {trend.direction === "unknown" &&
+              " Trend needs two submitted calibrated evaluations under this rubric."}
           </p>
 
           {criteria.length > 0 && (

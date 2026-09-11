@@ -262,48 +262,77 @@ export async function unlinkedCalls(): Promise<
  */
 export type TrendDirection = "up" | "down" | "flat" | "unknown";
 
-/**
- * The only two fields trendFrom reads. RepEvaluation satisfies it, so every
- * existing caller is unaffected; it exists so a batched read can select three
- * columns instead of the whole row and still feed the same function.
- */
-export interface TrendInput {
+/** One calibrated evaluation, as the trend reads it. */
+export interface TrendPoint {
   submitted_at: string;
   overall_score: number | null;
 }
 
-export function trendFrom(evaluations: TrendInput[]): {
-  direction: "up" | "down" | "flat" | "unknown";
+/**
+ * A representative's calibrated performance over time.
+ *
+ * Every field here is SHOWN in the roster, and that is the point: `previous`
+ * and `current` are the exact two numbers `direction` was decided from, so the
+ * claim can be checked against the table rather than taken on faith.
+ */
+export interface RepTrend {
+  /** The calibrated evaluation immediately before the most recent one. */
+  previous: number | null;
+  /** The most recent submitted calibrated evaluation. */
+  current: number | null;
+  /** current − previous, in percentage points. Null unless both exist. */
   delta: number | null;
-  basis: string;
-} {
-  const scored = evaluations
-    .filter((e) => e.overall_score !== null)
-    .slice()
-    .sort((a, b) => a.submitted_at.localeCompare(b.submitted_at));
+  direction: TrendDirection;
+}
 
-  if (scored.length < 6) {
-    return {
-      direction: "unknown",
-      delta: null,
-      basis: `${scored.length} evaluation${scored.length === 1 ? "" : "s"} — too few to read a trend`,
-    };
+export const TREND_BAND = 1;
+
+/**
+ * Trend from a representative's calibrated history.
+ *
+ * THE SCORE. `overall_score` on a calibrated evaluation is set by
+ * recompute_evaluation() as round(yes / (yes + no) * 100, 2) — criteria met
+ * over criteria assessed, N/A excluded. That is the same definition as the
+ * Trainer column, which pools the same counts across a representative's
+ * evaluations instead of taking one. So previous, current and Trainer are the
+ * same kind of number on the same scale, and comparing two of them is
+ * meaningful. Raw observations are given overall_score = null by that same
+ * function, so a Raw QA figure cannot reach this calculation even by accident.
+ *
+ * WHAT REPLACED WHAT. The previous model compared the mean of the earliest
+ * third of a rep's evaluations against the mean of the latest third, and
+ * refused to answer below six. It was defensible and completely unauditable
+ * from the screen: the roster showed a direction and never the numbers behind
+ * it. This compares the two most recent calibrated evaluations, and the roster
+ * prints both.
+ *
+ * Ordering is by submitted_at, newest first, with the evaluation id as a
+ * tiebreaker so two submissions in the same instant cannot swap places between
+ * reads. Rows with a null score are not usable and are skipped rather than
+ * treated as zero.
+ */
+export function calibratedTrend(points: TrendPoint[]): RepTrend {
+  const usable = points
+    .filter((p) => p.overall_score !== null)
+    .slice()
+    .sort((a, b) => b.submitted_at.localeCompare(a.submitted_at));
+
+  const current = usable[0]?.overall_score ?? null;
+  const previous = usable[1]?.overall_score ?? null;
+
+  if (current === null || previous === null) {
+    return { previous, current, delta: null, direction: "unknown" };
   }
 
-  const size = Math.floor(scored.length / 3);
-  const mean = (rows: TrendInput[]): number =>
-    rows.reduce((sum, r) => sum + (r.overall_score ?? 0), 0) / rows.length;
-
-  const earliest = mean(scored.slice(0, size));
-  const latest = mean(scored.slice(-size));
-  const delta = Math.round((latest - earliest) * 10) / 10;
-
+  const delta = Math.round((current - previous) * 10) / 10;
   return {
-    direction: delta > 1 ? "up" : delta < -1 ? "down" : "flat",
+    previous,
+    current,
     delta,
-    basis: `first ${size} vs last ${size} of ${scored.length}`,
+    direction: delta > TREND_BAND ? "up" : delta < -TREND_BAND ? "down" : "flat",
   };
 }
+
 
 
 // ---------------------------------------------------------------------------
@@ -513,66 +542,67 @@ export function formatGap(gap: number | null): string {
 /* -------------------------------------------------------------------------- */
 
 /**
- * Trend for many representatives at once.
+ * Calibrated trend for many representatives at once.
  *
- * The Dashboard and the roster view both used to call repEvaluations() once per
- * representative — fine at five rows, and a request per person once the full
- * roster renders. This asks the same view for the same rows in one read (a
- * handful once the roster is large), groups them in memory, and hands each
- * representative's own rows to the same trendFrom().
+ * Source: v_rep_evaluations, which is already exactly the right population —
+ * its own WHERE is kind = 'calibrated' AND status = 'submitted' AND
+ * archived_at IS NULL. Draft evaluations are excluded by that status test, and
+ * so are superseded ones: supersede_evaluation() sets the old row's status to
+ * 'superseded', it does not archive it. The active-rubric filter is applied
+ * here on top.
  *
- * What it does NOT change: the rubric filter, the source view, the six-scored
- * -evaluation minimum, the earliest-third versus latest-third comparison or the
- * up/down/flat thresholds. Only three columns are selected because those are
- * the only ones trendFrom reads.
+ * Only the newest rows are read. The answer needs two evaluations per
+ * representative, so the sweep goes newest-first and stops as soon as every
+ * representative asked about has two — not after the whole history.
  *
- * Two deliberate refusals:
+ * Two refusals, unchanged in spirit from the batching this replaces:
  *
  *   - A failed read returns an empty map. Every representative then falls to
- *     the caller's own "unknown" case, which is a dot. A trend invented from a
- *     query that did not return would be a claim about someone's direction of
- *     travel, and the rest of Rep Performance still renders without it.
+ *     the caller's "no trend yet", and the rest of the roster still renders. A
+ *     direction invented from a query that did not return would be a claim
+ *     about a person's progress.
  *
- *   - Truncated history is not trended. trendFrom divides the WHOLE series into
- *     thirds, so a short read does not give a slightly-stale answer, it gives a
- *     confident wrong one. Pages are read until the source is exhausted, and if
- *     the series ever exceeds TREND_MAX_ROWS the map is abandoned rather than
- *     computed from a prefix.
+ *   - If the sweep hits TREND_MAX_ROWS before the source is exhausted, the map
+ *     is abandoned rather than returned half-filled. A partial sweep can leave
+ *     a representative looking as though they have no history when they have
+ *     plenty, and a confident blank is still a wrong answer.
  */
 const TREND_ID_CHUNK = 100;
-const TREND_PAGE = 1000;
+const TREND_PAGE = 500;
 const TREND_MAX_ROWS = 20000;
+const TREND_MAX_RESTARTS = 8;
 
-export async function trendsForRoster(
+export async function calibratedTrends(
   representativeIds: string[],
   rubricVersionId?: string | null,
-): Promise<Record<string, TrendDirection>> {
+): Promise<Record<string, RepTrend>> {
   const ids = [...new Set(representativeIds)].filter(Boolean);
   if (ids.length === 0) return {};
 
-  const byRep = new Map<string, TrendInput[]>();
+  const byRep = new Map<string, TrendPoint[]>();
   for (const id of ids) byRep.set(id, []);
 
   try {
     // Chunked so the `in` list cannot grow into an over-long request URL as the
-    // representative population grows. Today's roster is one chunk, one page,
-    // one request.
+    // representative population grows.
     for (let i = 0; i < ids.length; i += TREND_ID_CHUNK) {
       const chunk = ids.slice(i, i + TREND_ID_CHUNK);
+      const need = new Set(chunk);
+      let asked = chunk;          // the id list this pagination run is filtered by
       let from = 0;
+      let restarts = 0;
+      let rowsRead = 0;
 
-      for (;;) {
+      while (need.size > 0) {
         let q = supabase
           .from("v_rep_evaluations")
-          .select("representative_id, submitted_at, overall_score")
-          .in("representative_id", chunk);
+          .select("representative_id, submitted_at, overall_score, evaluation_id")
+          .in("representative_id", asked);
         if (rubricVersionId) q = q.eq("rubric_version_id", rubricVersionId);
 
-        // Ordered by a unique column so paging cannot repeat or skip a row.
-        // trendFrom sorts by submitted_at itself, so the read order is
-        // irrelevant to the answer — only completeness is.
         const { data, error } = await q
-          .order("evaluation_id", { ascending: true })
+          .order("submitted_at", { ascending: false })
+          .order("evaluation_id", { ascending: false })
           .range(from, from + TREND_PAGE - 1);
         if (error) throw new Error(error.message);
 
@@ -581,23 +611,51 @@ export async function trendsForRoster(
           submitted_at: string;
           overall_score: number | null;
         }[];
+        rowsRead += rows.length;
+
+        const before = need.size;
         for (const r of rows) {
-          byRep.get(r.representative_id)?.push({
-            submitted_at: r.submitted_at,
-            overall_score: r.overall_score,
-          });
+          const bucket = byRep.get(r.representative_id);
+          if (!bucket) continue;
+          // Two usable scores is the whole answer. Older rows are not kept.
+          if (r.overall_score !== null && bucket.length < 2) {
+            bucket.push({ submitted_at: r.submitted_at, overall_score: r.overall_score });
+          }
+          if (bucket.length >= 2) need.delete(r.representative_id);
         }
 
-        if (rows.length < TREND_PAGE) break;
+        if (rows.length < TREND_PAGE) break;   // source exhausted
+        if (need.size === 0) break;
+
+        // Someone was satisfied on this page. Start a fresh pagination over
+        // just the representatives still wanted, so their rows are skipped
+        // entirely rather than paged past.
+        //
+        // This matters more than it looks. The sweep is newest-first across the
+        // WHOLE chunk, so one representative with a long recent history sits at
+        // the front of every page and buries everyone else behind thousands of
+        // rows that are already answered. Narrowing cannot be done by editing
+        // the filter mid-run — a smaller result set would make `from` point
+        // somewhere else entirely, and page two would skip precisely the rows
+        // page two needs — so the run restarts at offset zero with the new
+        // list. Restarts are capped: each one is another round trip, and the
+        // point of this function is to not spend one per representative.
+        if (need.size < before && restarts < TREND_MAX_RESTARTS) {
+          asked = [...need];
+          from = 0;
+          restarts += 1;
+          continue;
+        }
+
         from += TREND_PAGE;
-        if (from >= TREND_MAX_ROWS) return {};
+        if (rowsRead >= TREND_MAX_ROWS) return {};
       }
     }
   } catch {
     return {};
   }
 
-  const out: Record<string, TrendDirection> = {};
-  for (const [id, rows] of byRep) out[id] = trendFrom(rows).direction;
+  const out: Record<string, RepTrend> = {};
+  for (const [id, points] of byRep) out[id] = calibratedTrend(points);
   return out;
 }
