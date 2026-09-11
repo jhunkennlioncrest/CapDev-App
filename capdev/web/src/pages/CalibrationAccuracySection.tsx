@@ -1,53 +1,48 @@
 import { useCallback, useEffect, useState } from "react";
 import { SectionHeading } from "@/components/dash";
-import {
-  calibrationAccuracy,
-  calibrationDisagreements,
-  calibrationHotspots,
-  type CalibrationAccuracy,
-  type CalibrationComparison,
-  type CalibrationHotspot,
-} from "@/lib/performance";
+import { calibrationHotspots, type CalibrationHotspot } from "@/lib/performance";
 import type { Session } from "@/lib/types";
 
 /**
- * QA calibration — how closely reviewers track the trainer's final decisions.
+ * QA calibration — where the rubric itself is read two ways.
  *
  * Deliberately its own section, separate from Representative Performance,
  * because they answer different questions. Representative performance says how
- * the rep is doing. This says how consistently the QA process reads the rubric.
- * Presenting them together as one number would make both meaningless.
+ * the rep is doing. This says which CRITERIA the QA process disagrees about.
  *
  * Never labelled "Raw QA score": a disagreement is not a mark against the
  * reviewer, it is a place two trained people saw a call differently.
+ *
+ * This used to lead with a per-reviewer alignment card — accuracy percentage,
+ * aligned-of-compared, a disagreement count — above the criteria list. That
+ * card is gone. Team performance already carries the department's alignment as
+ * "Disagreements 1.9% · 2 of 105 comparisons", computed from the same
+ * comparison data, and two numbers answering one question on one page is how a
+ * reader ends up trusting neither. What is left is the part Team performance
+ * cannot say: WHICH criteria the disagreements land on.
+ *
+ * Nothing about how a disagreement is counted changed, and
+ * v_calibration_comparison is untouched — this component simply stopped
+ * reading the two of its three sources it no longer displays.
  */
 export function CalibrationAccuracySection({
   session,
-  onOpenCall,
 }: {
   session: Session;
-  onOpenCall?: (callId: string) => void;
 }): JSX.Element | null {
-  const [rows, setRows] = useState<CalibrationAccuracy[] | null>(null);
-  const [hotspots, setHotspots] = useState<CalibrationHotspot[]>([]);
-  const [expanded, setExpanded] = useState<string | null>(null);
-  const [disagreements, setDisagreements] = useState<CalibrationComparison[]>([]);
+  const [hotspots, setHotspots] = useState<CalibrationHotspot[] | null>(null);
 
-  // A reviewer sees their own figure; a trainer or manager sees the reviewers
-  // they oversee. Both come from the same view, with RLS deciding.
+  // A reviewer sees their own alignment; a trainer or manager sees the
+  // reviewers they oversee. The view scopes itself — RLS decides, not this.
   const isReviewerOnly =
     session.permissions.includes("raw_qa.submit") &&
     !session.permissions.includes("calibration.perform");
 
   const load = useCallback(async (): Promise<void> => {
     try {
-      // Both views scope themselves. A reviewer gets their own row and an
-      // empty hotspot list without the client asking for less.
-      const [a, h] = await Promise.all([calibrationAccuracy(), calibrationHotspots()]);
-      setRows(a);
-      setHotspots(h);
+      setHotspots(await calibrationHotspots());
     } catch {
-      setRows([]);
+      setHotspots([]);
     }
   }, []);
 
@@ -55,16 +50,7 @@ export function CalibrationAccuracySection({
     void load();
   }, [load]);
 
-  async function toggle(reviewerId: string): Promise<void> {
-    if (expanded === reviewerId) {
-      setExpanded(null);
-      return;
-    }
-    setExpanded(reviewerId);
-    setDisagreements(await calibrationDisagreements(reviewerId));
-  }
-
-  if (rows === null) return null;
+  if (hotspots === null) return null;
 
   return (
     <section className="mt-8">
@@ -73,114 +59,27 @@ export function CalibrationAccuracySection({
         meta={isReviewerOnly ? "Your alignment" : "Reviewer alignment"}
       />
 
-      {/* 0077 visual pass, presentation only. With nothing measured yet, the
-          section is a heading and two lines: the paragraph explaining what a
-          disagreement means arrives with the data it describes, rather than a
-          dashed box and an essay standing in for a result. */}
-      {rows.length === 0 ? (
+      {hotspots.length === 0 ? (
         <div className="bg-card border border-rule-soft rounded-lg px-5 py-4">
-          <p className="text-[13.5px] text-ink-70">No completed calibrations yet.</p>
+          <p className="text-[13.5px] text-ink-70">No disagreements recorded yet.</p>
           <p className="text-[12.5px] text-ink-45 mt-1">
-            Alignment appears once an observation has been calibrated and
-            submitted.
+            Criteria appear here once an observation has been calibrated and the
+            two assessments differ.
           </p>
         </div>
       ) : (
-        <>
-        <p className="text-[13px] text-ink-70 mb-3 max-w-2xl">
-          How often a reviewer&rsquo;s observation matched the trainer&rsquo;s final
-          decision. This is not the representative&rsquo;s score &mdash; a
-          disagreement records where two people read the same call differently.
-        </p>
-        <ul className="space-y-2">
-          {rows.map((r) => (
-            <li key={r.reviewer_id} className="bg-card border border-rule-soft rounded">
-              <div className="px-4 py-3 flex justify-between items-center gap-4 flex-wrap">
-                <div className="min-w-0">
-                  <p className="text-[14.5px]">
-                    {isReviewerOnly ? "My calibration accuracy" : r.reviewer_name}
-                  </p>
-                  <p className="text-[12px] text-ink-45 mt-0.5">
-                    {r.aligned} / {r.compared} aligned across {r.calibrations}{" "}
-                    calibration{r.calibrations === 1 ? "" : "s"}
-                  </p>
-                </div>
-                <div className="flex items-center gap-4 shrink-0">
-                  <span className="font-display text-2xl leading-none tabular-nums">
-                    {r.accuracy === null ? "—" : `${r.accuracy}%`}
-                  </span>
-                  {r.disagreements > 0 && (
-                    <button
-                      onClick={() => void toggle(r.reviewer_id)}
-                      className="border border-rule rounded px-3 py-1.5 text-[12.5px] hover:bg-ground-2"
-                    >
-                      {r.disagreements} disagreement{r.disagreements === 1 ? "" : "s"}
-                    </button>
-                  )}
-                </div>
-              </div>
-
-              {/* The disagreements themselves: what each side decided and why
-                  the trainer decided differently. Developmental, not punitive. */}
-              {expanded === r.reviewer_id && (
-                <ul className="border-t border-rule-soft divide-y divide-rule-soft">
-                  {disagreements.map((d, i) => (
-                    <li key={`${d.criterion_code}-${i}`} className="px-4 py-2.5">
-                      <div className="flex items-baseline gap-2.5 flex-wrap">
-                        <span className="font-mono text-[11px] text-ink-45">
-                          {d.criterion_code}
-                        </span>
-                        <span className="text-[13px] flex-1 min-w-0">
-                          {d.criterion_label}
-                        </span>
-                        <span className="font-mono text-[11.5px]">
-                          <span className="text-ink-45">you</span>{" "}
-                          {d.raw_value.toUpperCase()}
-                          <span className="text-ink-45 mx-1.5">&rarr;</span>
-                          <span className="text-ink-45">trainer</span>{" "}
-                          {d.trainer_value.toUpperCase()}
-                        </span>
-                        {onOpenCall && (
-                          <button
-                            onClick={() => onOpenCall(d.call_id)}
-                            title={d.call_title}
-                            className="text-[12px] text-accent underline underline-offset-2 shrink-0"
-                          >
-                            open call
-                          </button>
-                        )}
-                      </div>
-                      {d.trainer_justification && (
-                        <p className="text-[12.5px] text-ink-70 mt-1">
-                          {d.trainer_justification}
-                        </p>
-                      )}
-                    </li>
-                  ))}
-                </ul>
-              )}
-            </li>
-          ))}
-        </ul>
-        </>
-      )}
-
-      {/* Where the rubric itself is ambiguous, rather than who is wrong. */}
-      {hotspots.length > 0 && (
-        <div className="mt-3 border border-rule-soft rounded bg-card px-4 py-3">
-          <p className="font-mono text-[10px] tracking-[0.14em] uppercase text-ink-45 mb-2">
-            Most disagreed criteria
-          </p>
-          <ul className="space-y-1">
+        <div className="bg-card border border-rule-soft rounded-lg px-5 py-4">
+          <p className="text-[12.5px] text-ink-70 mb-3">Most disagreed criteria</p>
+          <ul className="divide-y divide-rule-soft">
             {hotspots.map((h) => (
-              <li key={h.criterion_code} className="flex items-baseline gap-2.5">
+              <li key={h.criterion_code} className="flex items-baseline gap-3 py-2 first:pt-0 last:pb-0">
                 <span className="font-mono text-[11px] text-ink-45 w-12 shrink-0">
                   {h.criterion_code}
                 </span>
-                <span className="text-[13px] flex-1 min-w-0 truncate">
+                <span className="text-[13.5px] flex-1 min-w-0 truncate text-ink">
                   {h.criterion_label}
                 </span>
-                <span className="font-mono text-[11.5px] text-ink-45 shrink-0">
+                <span className="font-mono text-[12px] tabular-nums text-ink-45 shrink-0">
                   {h.disagreements}/{h.compared} &middot; {h.disagreement_rate}%
                 </span>
               </li>

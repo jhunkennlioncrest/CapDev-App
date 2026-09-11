@@ -5,24 +5,18 @@ import { PerformanceOverview } from "@/pages/PerformanceOverview";
 import { SectionHeading, Icon } from "@/components/dash";
 import { getQueue } from "@/lib/evaluation";
 import { getRawWorklist } from "@/lib/workflow";
-import { listRepository, statsFrom } from "@/lib/repository";
 import {
   reviewerFigures,
   trainerFigures,
   type ReviewerFigures,
   type TrainerFigures,
 } from "@/lib/dashboard";
-import { supabase } from "@/lib/supabase";
 import type { Session } from "@/lib/types";
 import type { Workspace } from "@/components/AppShell";
 
 interface Counts {
   pendingRaw: number;
   waitingCalibration: number;
-  /** How many completed evaluations the representative figure is drawn from. */
-  completedEvaluations: number;
-  moments: number;
-  averageScore: number | null;
 }
 
 /**
@@ -55,13 +49,9 @@ export function HomeDashboard({
   const [trainer, setTrainer] = useState<TrainerFigures | null>(null);
 
   const load = useCallback(async (): Promise<void> => {
-    const [raw, queue, repo, moments, r, t] = await Promise.all([
+    const [raw, queue, r, t] = await Promise.all([
       canReview ? getRawWorklist() : Promise.resolve([]),
       canCalibrate ? getQueue() : Promise.resolve([]),
-      // Still loaded: the trainer's Representative Performance figure and the
-      // repository's own statistics both come from here.
-      listRepository(),
-      supabase.from("moment").select("id", { count: "exact", head: true }).is("archived_at", null),
       canReview && !canCalibrate
         ? reviewerFigures(session.person.id)
         : Promise.resolve(null),
@@ -70,14 +60,9 @@ export function HomeDashboard({
     setMine(r);
     setTrainer(t);
 
-    const stats = statsFrom(repo);
-
     setCounts({
       pendingRaw: raw.length,
       waitingCalibration: queue.filter((q) => q.status === "waiting").length,
-      completedEvaluations: stats.completed,
-      moments: moments.count ?? 0,
-      averageScore: stats.averageScore,
     });
   }, [canReview, canCalibrate, session.person.id]);
 
@@ -115,7 +100,9 @@ export function HomeDashboard({
               these cards say what is queued for one person, while the sections
               below say how the department is doing. A role with no QA queue
               gets no heading at all rather than an empty one. */}
-          {(canReview || canCalibrate) && <SectionHeading title="Your work" />}
+          {(canReview || canCalibrate) && (
+          <>
+          <SectionHeading title="Your work" />
           <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-3">
             {canReview && (
               <Card
@@ -166,47 +153,19 @@ export function HomeDashboard({
               />
             )}
           </div>
-
-          {/* Representative performance and the Library count belong to the
-              trainer's remit. On a reviewer's dashboard the first is not their
-              score and the second is not something they can create, so neither
-              appears there. */}
-          {canCalibrate && (
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mt-3">
-              {/* Renamed in the 0077 visual pass, and not for tidiness. This
-                  is statsFrom().averageScore: the MEAN of per-evaluation
-                  overall_score. Team performance's "Trainer performance" is a
-                  different calculation — pooled criteria met over criteria
-                  assessed — so the two can legitimately differ. Calling both
-                  of them "representative performance" on one page, which is
-                  what the old caption did, invited the reader to treat a
-                  disagreement between them as an error. Neither number
-                  changed; only this label. */}
-              <Figure
-                icon="clipboard"
-                value={counts.averageScore === null ? "—" : `${counts.averageScore}%`}
-                caption="Average evaluation score"
-                detail={
-                  counts.averageScore === null
-                    ? "no completed evaluations yet"
-                    : `mean of ${counts.completedEvaluations} completed evaluation${counts.completedEvaluations === 1 ? "" : "s"}`
-                }
-              />
-              <Figure
-                icon="bars"
-                value={String(counts.moments)}
-                caption="Active teaching moments"
-                detail="in the Library"
-              />
-            </div>
+          </>
           )}
 
-          {/* "Recent observations" and "Recent calibrations" used to sit here.
-              They were a log, not a decision: a reviewer already knows what
-              they submitted, and neither list changed what anyone would do
-              next. The history itself is untouched — it is in the Library, on
-              Rep Performance and on each call. Removing the panels also
-              retired the five queries that fed them (see dashboard.ts). */}
+          {/* "Average evaluation score" and "Active teaching moments" used to
+              sit here. The first was statsFrom().averageScore — a mean of
+              per-evaluation overall_score — which answers the same question a
+              reader asks of Calibrated Score while computing it differently,
+              and two overall-looking percentages on one page cost more in doubt
+              than either was worth. The second was a Library count, not
+              personal workflow, so it did not belong under Your work. Neither
+              figure is deleted: statsFrom() is unchanged and the Library still
+              owns both. Only this Dashboard's copy is gone, along with the two
+              reads that fed it. */}
         </>
       )}
       {/* 0077: the shared performance picture, below the personal work and
@@ -279,30 +238,3 @@ function Card({
   );
 }
 
-function Figure({
-  icon,
-  value,
-  caption,
-  detail,
-}: {
-  icon: "clipboard" | "bars";
-  value: string;
-  caption: string;
-  /** What the number covers. Every figure states its own scope. */
-  detail?: string;
-}): JSX.Element {
-  return (
-    <div className="bg-card border border-rule-soft rounded-lg px-5 py-4">
-      <span className="flex items-center gap-2.5">
-        <span className="inline-flex items-center justify-center w-9 h-9 rounded-lg bg-ground-2 text-ink-45 shrink-0">
-          <Icon name={icon} />
-        </span>
-        <span className="text-[12.5px] text-ink-70">{caption}</span>
-      </span>
-      <span className="font-display text-[26px] block leading-none mt-3 tabular-nums">
-        {value}
-      </span>
-      {detail && <span className="text-[11.5px] text-ink-45 block mt-2">{detail}</span>}
-    </div>
-  );
-}
