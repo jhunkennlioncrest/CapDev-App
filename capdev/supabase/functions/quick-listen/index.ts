@@ -52,6 +52,14 @@ import {
   staleMillis,
   stalenessColumn,
 } from "./staleness.ts";
+import { runQuickListenWorker } from "./worker.ts";
+
+/**
+ * Supabase's background-task primitive. Declared rather than imported: it is
+ * provided by the Edge Runtime, and is absent when this module is loaded by
+ * anything else, which is why every use is guarded.
+ */
+declare const EdgeRuntime: { waitUntil(promise: Promise<unknown>): void } | undefined;
 
 /* -------------------------------------------------------------------------- */
 /* Constants                                                                   */
@@ -534,6 +542,30 @@ async function handle(req: Request): Promise<Response> {
     .single();
 
   if (!insertError && inserted) {
+    // Hand the work to the background and answer immediately. The isolate is
+    // only retired once the response has returned AND every waitUntil promise
+    // has settled, so generation continues after the browser has the reply and
+    // the reviewer can close the tab.
+    //
+    // The promise is deliberately never awaited, and swallows its own failures:
+    // the worker records its own terminal state in the row, and an unhandled
+    // rejection here would take down the isolate for no benefit.
+    const background = runQuickListenWorker(serviceClient, inserted.id as string)
+      .catch((err) => {
+        log({ outcome: "worker_unhandled", digest_id: inserted.id,
+              error_name: (err as { name?: string })?.name ?? "Error" });
+      });
+
+    if (typeof EdgeRuntime !== "undefined" && EdgeRuntime?.waitUntil) {
+      EdgeRuntime.waitUntil(background);
+    } else {
+      // Not the Edge Runtime (a local harness, a test). Without waitUntil the
+      // only way the work happens at all is to wait for it, which is slower but
+      // correct; saying nothing and dropping it would be neither.
+      log({ outcome: "no_waituntil_awaiting_inline", digest_id: inserted.id });
+      await background;
+    }
+
     log({ outcome: "queued", person_id: personId, call_id: callId, digest_id: inserted.id });
     return json(200, {
       status: "queued",

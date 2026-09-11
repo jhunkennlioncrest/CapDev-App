@@ -28,21 +28,27 @@ import { canonicalTimestampMicros } from "./fingerprint.ts";
  *   minutes is far longer than either needs, and expiring a queued row is
  *   nearly free: no provider call has been made, so nothing is thrown away.
  *
- *   RUNNING - a worker said it was working. 400s is the longest a single worker
- *   can live, so thirty minutes covers a chained design of roughly four or five
- *   consecutive worker windows. It is deliberately generous, because the two
- *   errors are not symmetrical: expiring too early kills work that has ALREADY
- *   SPENT provider money and will spend it again, while expiring too late only
- *   makes a reviewer wait. Phase 3 should revisit this once its execution shape
- *   is actually decided - if generation turns out to be a single worker, this
- *   can drop to about ten minutes.
+ *   RUNNING - a worker said it was working, and 0075 Phase 3A settled what that
+ *   worker is: ONE EdgeRuntime.waitUntil task inside the request's own isolate.
+ *   Such a worker cannot outlive the wall clock, so ten minutes is 1.5x the
+ *   400s paid ceiling and about four times the 150s free one - safe under
+ *   either plan without having to know which this project is on. It was thirty
+ *   minutes when the execution shape was still open and a chain of workers was
+ *   possible; against a single worker that only meant a dead job held the call
+ *   hostage for twenty-three minutes longer than it had to.
+ *
+ *   The asymmetry that set it still holds: expiring too early destroys work
+ *   that has already spent provider money, expiring too late only makes a
+ *   reviewer wait. Ten minutes keeps a wide margin over the ceiling rather than
+ *   hugging it. If Phase 3B moves condensation to a queue drained across
+ *   several invocations, this has to go back up.
  *
  * Recovery is request-triggered only: no cron, no sweeper. A call nobody asks
  * about again keeps its stale row indefinitely, which costs nothing, because
  * the only harm a stale row does is block a request that is not being made.
  */
 export const STALE_QUEUED_MS = 15 * 60 * 1000;
-export const STALE_RUNNING_MS = 30 * 60 * 1000;
+export const STALE_RUNNING_MS = 10 * 60 * 1000;
 
 export interface InFlightTimings {
   status: string;
