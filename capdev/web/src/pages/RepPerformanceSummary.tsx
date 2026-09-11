@@ -2,8 +2,7 @@ import { useEffect, useState } from "react";
 import {
   listRepPerformance,
   listRepRawObservationPerformance,
-  repEvaluations,
-  trendFrom,
+  trendsForRoster,
   formatGap,
   scoreGap,
   type RepPerformance,
@@ -58,20 +57,14 @@ export function RepPerformanceSummary({
         ),
       );
 
-      // Trend needs each representative's own evaluations. This used to fetch
-      // only the five that were rendered; the Dashboard now shows the full
-      // roster, so limiting it here would leave everyone past the fifth with a
-      // permanent "no trend" dot that looks like data. Still only those with
-      // evaluations to read a trend from — there is nothing to ask about the
-      // rest.
+      // Trend covers the whole roster, in one batched read rather than a
+      // request per representative. Only those with evaluations are asked
+      // about — there is nothing to trend for the rest, and anyone the read
+      // does not answer for falls to the "unknown" dot below.
       const scored = all.filter((r) => r.evaluations > 0);
-      const results = await Promise.all(
-        scored.map(async (r) => [
-          r.representative_id,
-          trendFrom(await repEvaluations(r.representative_id, active.id)).direction,
-        ] as const),
+      setTrends(
+        await trendsForRoster(scored.map((r) => r.representative_id), active.id),
       );
-      setTrends(Object.fromEntries(results));
     })();
   }, []);
 

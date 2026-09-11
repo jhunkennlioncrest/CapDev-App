@@ -260,7 +260,19 @@ export async function unlinkedCalls(): Promise<
  * report anything below six evaluations — with fewer, a single call moves the
  * figure more than any real change in performance would.
  */
-export function trendFrom(evaluations: RepEvaluation[]): {
+export type TrendDirection = "up" | "down" | "flat" | "unknown";
+
+/**
+ * The only two fields trendFrom reads. RepEvaluation satisfies it, so every
+ * existing caller is unaffected; it exists so a batched read can select three
+ * columns instead of the whole row and still feed the same function.
+ */
+export interface TrendInput {
+  submitted_at: string;
+  overall_score: number | null;
+}
+
+export function trendFrom(evaluations: TrendInput[]): {
   direction: "up" | "down" | "flat" | "unknown";
   delta: number | null;
   basis: string;
@@ -279,7 +291,7 @@ export function trendFrom(evaluations: RepEvaluation[]): {
   }
 
   const size = Math.floor(scored.length / 3);
-  const mean = (rows: RepEvaluation[]): number =>
+  const mean = (rows: TrendInput[]): number =>
     rows.reduce((sum, r) => sum + (r.overall_score ?? 0), 0) / rows.length;
 
   const earliest = mean(scored.slice(0, size));
@@ -494,4 +506,98 @@ export function formatGap(gap: number | null): string {
   const rounded = Math.round(gap * 10) / 10;
   if (rounded === 0) return "0 pts";
   return `${rounded > 0 ? "+" : "−"}${Math.abs(rounded)} pts`;
+}
+
+/* -------------------------------------------------------------------------- */
+/* Roster trends, in a bounded number of reads                                 */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * Trend for many representatives at once.
+ *
+ * The Dashboard and the roster view both used to call repEvaluations() once per
+ * representative — fine at five rows, and a request per person once the full
+ * roster renders. This asks the same view for the same rows in one read (a
+ * handful once the roster is large), groups them in memory, and hands each
+ * representative's own rows to the same trendFrom().
+ *
+ * What it does NOT change: the rubric filter, the source view, the six-scored
+ * -evaluation minimum, the earliest-third versus latest-third comparison or the
+ * up/down/flat thresholds. Only three columns are selected because those are
+ * the only ones trendFrom reads.
+ *
+ * Two deliberate refusals:
+ *
+ *   - A failed read returns an empty map. Every representative then falls to
+ *     the caller's own "unknown" case, which is a dot. A trend invented from a
+ *     query that did not return would be a claim about someone's direction of
+ *     travel, and the rest of Rep Performance still renders without it.
+ *
+ *   - Truncated history is not trended. trendFrom divides the WHOLE series into
+ *     thirds, so a short read does not give a slightly-stale answer, it gives a
+ *     confident wrong one. Pages are read until the source is exhausted, and if
+ *     the series ever exceeds TREND_MAX_ROWS the map is abandoned rather than
+ *     computed from a prefix.
+ */
+const TREND_ID_CHUNK = 100;
+const TREND_PAGE = 1000;
+const TREND_MAX_ROWS = 20000;
+
+export async function trendsForRoster(
+  representativeIds: string[],
+  rubricVersionId?: string | null,
+): Promise<Record<string, TrendDirection>> {
+  const ids = [...new Set(representativeIds)].filter(Boolean);
+  if (ids.length === 0) return {};
+
+  const byRep = new Map<string, TrendInput[]>();
+  for (const id of ids) byRep.set(id, []);
+
+  try {
+    // Chunked so the `in` list cannot grow into an over-long request URL as the
+    // representative population grows. Today's roster is one chunk, one page,
+    // one request.
+    for (let i = 0; i < ids.length; i += TREND_ID_CHUNK) {
+      const chunk = ids.slice(i, i + TREND_ID_CHUNK);
+      let from = 0;
+
+      for (;;) {
+        let q = supabase
+          .from("v_rep_evaluations")
+          .select("representative_id, submitted_at, overall_score")
+          .in("representative_id", chunk);
+        if (rubricVersionId) q = q.eq("rubric_version_id", rubricVersionId);
+
+        // Ordered by a unique column so paging cannot repeat or skip a row.
+        // trendFrom sorts by submitted_at itself, so the read order is
+        // irrelevant to the answer — only completeness is.
+        const { data, error } = await q
+          .order("evaluation_id", { ascending: true })
+          .range(from, from + TREND_PAGE - 1);
+        if (error) throw new Error(error.message);
+
+        const rows = (data ?? []) as {
+          representative_id: string;
+          submitted_at: string;
+          overall_score: number | null;
+        }[];
+        for (const r of rows) {
+          byRep.get(r.representative_id)?.push({
+            submitted_at: r.submitted_at,
+            overall_score: r.overall_score,
+          });
+        }
+
+        if (rows.length < TREND_PAGE) break;
+        from += TREND_PAGE;
+        if (from >= TREND_MAX_ROWS) return {};
+      }
+    }
+  } catch {
+    return {};
+  }
+
+  const out: Record<string, TrendDirection> = {};
+  for (const [id, rows] of byRep) out[id] = trendFrom(rows).direction;
+  return out;
 }

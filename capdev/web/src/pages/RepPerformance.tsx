@@ -5,6 +5,7 @@ import {
   repEvaluations,
   repVariance,
   trendFrom,
+  trendsForRoster,
   type CriterionPerformance,
   type RepEvaluation,
   type RepPerformance as RepRow,
@@ -70,16 +71,17 @@ export function RepPerformance({
       setCriteria(cr);
       setVariance(va);
     } else {
-      // Roster view. Trend needs each representative's own evaluations, so it
-      // is fetched only here — and only for those with something to trend.
+      // Roster view. Same batched read as the Dashboard summary: one request
+      // for every representative's evaluations rather than one each. The
+      // per-representative detail path above still uses repEvaluations(),
+      // which is the right shape when exactly one person is being shown.
       const withEvaluations = all.filter((r) => r.evaluations > 0);
-      const results = await Promise.all(
-        withEvaluations.map(async (r) => [
-          r.representative_id,
-          trendFrom(await repEvaluations(r.representative_id, versionId)).direction,
-        ] as const),
+      setRosterTrends(
+        await trendsForRoster(
+          withEvaluations.map((r) => r.representative_id),
+          versionId,
+        ),
       );
-      setRosterTrends(Object.fromEntries(results));
     }
     setLoading(false);
   }, [versionId, repId]);
