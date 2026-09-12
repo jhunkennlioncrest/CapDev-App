@@ -102,8 +102,18 @@ export async function trainerFigures(personId: string): Promise<TrainerFigures> 
 export interface StageFigure {
   key: string;
   label: string;
-  /** avg(score) / 5 * 100, or null when the stage has never been scored. */
+  /**
+   * Criteria met within the stage: 100 * yes / (yes + no), pooled across every
+   * qualifying evaluation. Null when the stage has no applicable criterion
+   * anywhere — which is not the same as 0%, and must never render as one.
+   */
   pct: number | null;
+  /**
+   * Contributing EVALUATIONS — those with at least one applicable criterion in
+   * this stage — not criterion rows. The label beside it reads "n=", and a
+   * reader takes that to mean calls looked at; a criterion count would inflate
+   * it several-fold and make "Limited data" disappear exactly when it matters.
+   */
   n: number;
 }
 
@@ -124,7 +134,14 @@ export interface SharedPerformance {
   nonNegotiables: { pct: number; n: number; passed: number } | null;
 }
 
-/** The five scored stages, in rubric order, with the labels the business uses. */
+/**
+ * The five conversation stages, in rubric order, with the labels the business
+ * uses. The KEYS are the canonical stage keys emitted by
+ * v_stage_checklist_status, which is where the rubric's own stage text
+ * ("Opening", "Discovery Call", "Collaborative Problem-Solving", "Timeline
+ * Transparency", "Closing") is mapped. The mapping lives in the database, once;
+ * nothing here infers a stage from a label.
+ */
 const STAGES: { key: string; label: string }[] = [
   { key: "opening", label: "Opening" },
   { key: "problem_discovery", label: "Discovery Call" },
@@ -135,6 +152,102 @@ const STAGES: { key: string; label: string }[] = [
 
 /** Below this a percentage is reported with a caution rather than alone. */
 export const LOW_SAMPLE = 5;
+
+/**
+ * Stage performance, read from the CALIBRATED RUBRIC CRITERIA.
+ *
+ * WHAT THIS IS NOT. It is not the QA Trainer's 0-5 stage judgement. That
+ * system — evaluation_stage_score, saveStageScore(), v_trainer_score,
+ * v_trainer_determination, v_trainer_reward — is a separate, manual, holistic
+ * assessment and is untouched by this module. It remains the basis for
+ * coaching, trainer determination and reward. It is simply not what the
+ * Dashboard means by "Stage performance", and reading it here made the section
+ * blank whenever a Trainer had not hand-scored a call, which is most of them.
+ *
+ * WHAT IT IS. For each of the five conversation stages: the checklist criteria
+ * belonging to that stage, across every submitted calibrated evaluation on the
+ * ACTIVE rubric, pooled.
+ *
+ *     stage % = 100 * sum(yes) / sum(yes + no)
+ *
+ * Pooled over the underlying criterion results — never an average of rounded
+ * per-evaluation or per-representative percentages, which would weight a call
+ * with one applicable criterion the same as one with five.
+ *
+ * N/A IS NOT A MISS. It is a question that did not apply to this call, so it
+ * leaves both sides of the ratio. A stage whose criteria were all N/A
+ * contributes nothing and is not counted as 0%.
+ *
+ * THE STAGE MAPPING IS THE DATABASE'S. v_stage_checklist_status joins
+ * evaluation_score -> rubric_criterion -> rubric_section, keeps only
+ * sec.kind = 'checklist' (so the seven Non-Negotiables are excluded by
+ * construction, not by a list maintained here), and maps the rubric's stored
+ * rubric_criterion.stage text onto the five canonical keys. Nothing in this
+ * file infers a stage from a label.
+ *
+ * RUBRIC VERSIONS NEVER MIX. The view carries no version of its own; scoping
+ * is by evaluation id, and the caller passes only evaluations already filtered
+ * to the active rubric_version_id. When a new version is activated, this
+ * follows it automatically and cannot drag the old criteria along.
+ */
+
+/** Rows per request. PostgREST's own default is a cap, not a promise. */
+const STAGE_PAGE = 1000;
+/** Ids per request, so a long roster cannot push the URL past what is accepted. */
+const STAGE_ID_CHUNK = 100;
+
+interface StageTotals {
+  yes: number;
+  applicable: number;
+  /** Distinct evaluations that contributed at least one applicable criterion. */
+  evaluations: Set<string>;
+}
+
+async function stageTotals(evaluationIds: string[]): Promise<Map<string, StageTotals>> {
+  const out = new Map<string, StageTotals>();
+  if (evaluationIds.length === 0) return out;
+
+  for (let i = 0; i < evaluationIds.length; i += STAGE_ID_CHUNK) {
+    const chunk = evaluationIds.slice(i, i + STAGE_ID_CHUNK);
+    // Paged rather than taken on trust. Five rows per evaluation means a few
+    // hundred calibrations already exceed a single default page, and a
+    // truncated read would not fail — it would quietly return a percentage
+    // computed from part of the department and present it as all of it.
+    for (let from = 0; ; from += STAGE_PAGE) {
+      const { data, error } = await supabase
+        .from("v_stage_checklist_status")
+        .select("evaluation_id, stage, yes_items, no_items")
+        .in("evaluation_id", chunk)
+        .order("evaluation_id", { ascending: true })
+        .order("stage", { ascending: true })
+        .range(from, from + STAGE_PAGE - 1);
+      // Thrown, never swallowed. The caller renders the section unavailable
+      // rather than showing a stage at 0% because a read was refused.
+      if (error) throw new Error(error.message);
+
+      const rows = (data ?? []) as {
+        evaluation_id: string;
+        stage: string;
+        yes_items: number | null;
+        no_items: number | null;
+      }[];
+
+      for (const r of rows) {
+        const yes = r.yes_items ?? 0;
+        const applicable = yes + (r.no_items ?? 0);
+        if (applicable === 0) continue;
+        const t = out.get(r.stage) ?? { yes: 0, applicable: 0, evaluations: new Set<string>() };
+        t.yes += yes;
+        t.applicable += applicable;
+        t.evaluations.add(r.evaluation_id);
+        out.set(r.stage, t);
+      }
+
+      if (rows.length < STAGE_PAGE) break;
+    }
+  }
+  return out;
+}
 
 export async function sharedPerformance(): Promise<SharedPerformance> {
   // The active rubric, resolved the same way evaluation.ts resolves it, so the
@@ -167,7 +280,7 @@ export async function sharedPerformance(): Promise<SharedPerformance> {
 
   const versionId = rubric.id;
 
-  const [rawRows, calRows, alignment, stageRows, nnRows] = await Promise.all([
+  const [rawRows, calRows, alignment, nnRows] = await Promise.all([
     // Counts and totals come from the same read: yes_count and
     // applicable_count are summed here rather than averaged, because two
     // evaluations can have different applicable denominators once criteria are
@@ -182,7 +295,7 @@ export async function sharedPerformance(): Promise<SharedPerformance> {
       .eq("rubric_version_id", versionId),
     supabase
       .from("evaluation")
-      .select("yes_count, applicable_count")
+      .select("id, yes_count, applicable_count")
       .eq("kind", "calibrated")
       .eq("status", "submitted")
       .is("archived_at", null)
@@ -194,13 +307,6 @@ export async function sharedPerformance(): Promise<SharedPerformance> {
       .select("comparisons, misaligned")
       .eq("rubric_version_id", versionId)
       .maybeSingle<{ comparisons: number; misaligned: number }>(),
-    supabase
-      .from("evaluation_stage_score")
-      .select("stage, score, evaluation!inner(kind, status, archived_at, rubric_version_id)")
-      .eq("evaluation.kind", "calibrated")
-      .eq("evaluation.status", "submitted")
-      .is("evaluation.archived_at", null)
-      .eq("evaluation.rubric_version_id", versionId),
     // A null non_negotiables_all_pass is not a failure — it is an evaluation
     // that carries no authoritative Non-Negotiables result, and it is excluded
     // from both sides of the fraction rather than counted against anyone.
@@ -218,7 +324,7 @@ export async function sharedPerformance(): Promise<SharedPerformance> {
   // failed read into "Observed 0" and "no data yet" — a measured claim about
   // the department, made from a query that never returned. Every read that
   // feeds a figure is checked before any figure is computed.
-  for (const r of [rawRows, calRows, stageRows, nnRows]) {
+  for (const r of [rawRows, calRows, nnRows]) {
     if (r.error) throw new Error(r.error.message);
   }
 
@@ -231,19 +337,25 @@ export async function sharedPerformance(): Promise<SharedPerformance> {
   };
 
   const raw = (rawRows.data ?? []) as { yes_count: number; applicable_count: number }[];
-  const cal = (calRows.data ?? []) as { yes_count: number; applicable_count: number }[];
+  const cal = (calRows.data ?? []) as {
+    id: string;
+    yes_count: number;
+    applicable_count: number;
+  }[];
 
-  const stages = (stageRows.data ?? []) as unknown as { stage: string; score: number }[];
+  // Sequential, and deliberately so: the stage read is scoped by the exact
+  // evaluation ids the calibrated read just returned. Embedding
+  // `evaluation!inner` would keep it in the batch above, but PostgREST infers
+  // an embed's relationship from foreign keys, and the stage source is a VIEW
+  // with none — so the filter is applied here, where it is provable, rather
+  // than left to inference that could silently widen the population.
+  const totals = await stageTotals(cal.map((r) => r.id));
   const byStage = STAGES.map((s) => {
-    const mine = stages.filter((x) => x.stage === s.key);
-    const n = mine.length;
+    const t = totals.get(s.key);
     return {
       ...s,
-      n,
-      // 0-5 scored, shown out of 5. No rubric maximum is hard-coded anywhere
-      // else; this one is the stage scale itself, fixed by the column's own
-      // CHECK (score >= 0 AND score <= 5).
-      pct: n > 0 ? (100 * mine.reduce((a, x) => a + x.score, 0)) / (5 * n) : null,
+      n: t ? t.evaluations.size : 0,
+      pct: t && t.applicable > 0 ? (100 * t.yes) / t.applicable : null,
     };
   });
 

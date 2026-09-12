@@ -14,11 +14,11 @@ import { SectionHeading, StatCard, Meter } from "@/components/dash";
  * role would be the fastest way to end up with two departments disagreeing
  * about their own score.
  *
- * Raw QA sees Trainer stage performance here, deliberately. A reviewer who
- * cannot see where the calibrated assessment lands has no way to learn from it,
- * and calibration awareness is the point. Seeing a figure grants no authority
- * to change one: this component reads, and the permissions that govern
- * calibration, submission and management are untouched by it.
+ * Raw QA sees the calibrated stage performance here, deliberately. A reviewer
+ * who cannot see where the calibrated assessment lands has no way to learn from
+ * it, and calibration awareness is the point. Seeing a figure grants no
+ * authority to change one: this component reads, and the permissions that
+ * govern calibration, submission and management are untouched by it.
  *
  * Every figure states its scope. The heading carries it once — all time,
  * current active rubric — rather than repeating it on each number.
@@ -125,12 +125,22 @@ export function PerformanceOverview(): JSX.Element | null {
       </section>
 
       <section className="mt-8">
-        <SectionHeading title="Stage performance" meta="QA Trainer scoring" />
+        <SectionHeading
+          title="Stage performance"
+          meta="Calibrated rubric performance"
+        />
 
-        {/* Six cells, and the sixth is deliberately not a stage. Non-Negotiables
-            keeps the row's shape so the eye can still compare left to right,
-            and changes surface, chip and footnote so it cannot be mistaken for
-            — or averaged with — a 0–5 stage score. */}
+        {/* Criteria met within each stage, pooled across every submitted
+            calibrated evaluation on the active rubric — not the Trainer's
+            separate 0–5 judgement, which lives on the evaluation itself and is
+            not what this section means.
+
+            Six cells, and the sixth is deliberately not a stage.
+            Non-Negotiables keeps the row's shape so the eye can still compare
+            left to right, and changes surface, chip and footnote so it cannot
+            be mistaken for — or averaged with — a stage percentage. It is a
+            pass rate over whole evaluations; these five are ratios of
+            criteria. */}
         <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
           {data.stages.map((s) => (
             <Meter key={s.key} label={s.label} pct={s.pct} detail={sample(s.n)} />
@@ -159,6 +169,11 @@ function pct(v: number | null): string {
 /**
  * A percentage without its sample size invites a reader to trust three
  * observations as much as three hundred, so the size is never optional.
+ *
+ * `n` counts EVALUATIONS that contributed an applicable criterion to the
+ * stage, not criterion rows — the reader reads "n=" as calls looked at, and a
+ * criterion count would inflate it several-fold and retire the "Limited data"
+ * caution exactly where it is most needed.
  */
 function sample(n: number): string {
   if (n === 0) return "No data yet";
