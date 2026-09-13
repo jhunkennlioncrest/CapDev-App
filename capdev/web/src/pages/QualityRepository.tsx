@@ -4,6 +4,8 @@ import { trainerRewards, type TrainerReward } from "@/lib/calibration";
 import { formatDate, formatDuration } from "@/lib/format";
 import { OriginalFileLine } from "@/components/OriginalFileLine";
 import { getRecordingFiles, type CallRecordingFiles } from "@/lib/recordingFiles";
+import { RiskContextBadge } from "@/components/RiskRecordList";
+import { riskContextFor, type RiskContext } from "@/lib/risk";
 
 interface Props {
   onOpenRecord: (callId: string) => void;
@@ -34,13 +36,17 @@ export function QualityRepository({ onOpenRecord, onBack, embedded = false }: Pr
   // reward_tier. One batched query for the page rather than one per row.
   const [rewards, setRewards] = useState<Record<string, TrainerReward>>({});
   const [files, setFiles] = useState<Map<string, CallRecordingFiles>>(new Map());
+  const [risks, setRisks] = useState<Map<string, RiskContext>>(new Map());
 
   const load = useCallback(async (): Promise<void> => {
     try {
       const list = await listRepository();
       setRows(list);
       setRewards(await trainerRewards(list.map((r) => r.evaluation_id)));
-      setFiles(await getRecordingFiles(list.map((r) => r.call_id)));
+      const ids = list.map((r) => r.call_id);
+      const [f, rc] = await Promise.all([getRecordingFiles(ids), riskContextFor(ids)]);
+      setFiles(f);
+      setRisks(rc);
       setError(null);
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
@@ -187,11 +193,7 @@ export function QualityRepository({ onOpenRecord, onBack, embedded = false }: Pr
                     >
                       {r.call_title}
                     </button>
-                    {r.is_high_risk && (
-                      <span className="text-[11px] border border-[#AC3A2A] text-[#AC3A2A] rounded-full px-2 py-0.5">
-                        Escalation
-                      </span>
-                    )}
+                    <RiskContextBadge context={risks.get(r.call_id)} />
                     {rewards[r.evaluation_id]?.trainer_reward_tier === "kudos" && (
                       <span className="text-[11px] border border-[#1F7A4D] text-[#1F7A4D] rounded-full px-2 py-0.5">
                         Kudos

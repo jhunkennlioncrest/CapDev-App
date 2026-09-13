@@ -7,6 +7,8 @@ import { listPlaylists, getPlaylistContents, type PlaylistSummary, type Playlist
 import { formatDate, formatDuration } from "@/lib/format";
 import { OriginalFileLine } from "@/components/OriginalFileLine";
 import { getRecordingFiles, type CallRecordingFiles } from "@/lib/recordingFiles";
+import { RiskContextBadge } from "@/components/RiskRecordList";
+import { riskContextFor, type RiskContext } from "@/lib/risk";
 import type { Session } from "@/lib/types";
 
 type Tab = "todo" | "submitted";
@@ -14,6 +16,12 @@ type Tab = "todo" | "submitted";
 interface Props {
   session: Session;
   onOpenCall: (id: string) => void;
+  /**
+   * Which tab to open on. Read once, at mount — this workspace unmounts
+   * while a call is open, so returning from a submission remounts it and
+   * lands on the submitted work (0074).
+   */
+  initialTab?: Tab;
 }
 
 /**
@@ -23,8 +31,8 @@ interface Props {
  * question ("what should I do now"), and playlists are shown as what they are:
  * completed work, already filed. The reviewer never creates or manages one.
  */
-export function RawQAWorkspace({ session, onOpenCall }: Props): JSX.Element {
-  const [tab, setTab] = useState<Tab>("todo");
+export function RawQAWorkspace({ session, onOpenCall, initialTab = "todo" }: Props): JSX.Element {
+  const [tab, setTab] = useState<Tab>(initialTab);
   const [todo, setTodo] = useState<RawWorklistItem[]>([]);
   const [playlists, setPlaylists] = useState<PlaylistSummary[]>([]);
   const [expanded, setExpanded] = useState<string | null>(null);
@@ -32,6 +40,7 @@ export function RawQAWorkspace({ session, onOpenCall }: Props): JSX.Element {
   // Filenames for every call on screen, in both tabs. Accumulated rather
   // than replaced: a playlist expanded later adds its calls to the map.
   const [files, setFiles] = useState<Map<string, CallRecordingFiles>>(new Map());
+  const [risks, setRisks] = useState<Map<string, RiskContext>>(new Map());
   const [uploadOpen, setUploadOpen] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
@@ -56,13 +65,24 @@ export function RawQAWorkspace({ session, onOpenCall }: Props): JSX.Element {
 
   /** Adds filenames for call ids not already held, keeping what is there. */
   const mergeFiles = useCallback(async (callIds: string[]): Promise<void> => {
-    const fetched = await getRecordingFiles(callIds);
-    if (fetched.size === 0) return;
-    setFiles((prev) => {
-      const next = new Map(prev);
-      fetched.forEach((v, k) => next.set(k, v));
-      return next;
-    });
+    const [fetched, fetchedRisks] = await Promise.all([
+      getRecordingFiles(callIds),
+      riskContextFor(callIds),
+    ]);
+    if (fetched.size > 0) {
+      setFiles((prev) => {
+        const next = new Map(prev);
+        fetched.forEach((v, k) => next.set(k, v));
+        return next;
+      });
+    }
+    if (fetchedRisks.size > 0) {
+      setRisks((prev) => {
+        const next = new Map(prev);
+        fetchedRisks.forEach((v, k) => next.set(k, v));
+        return next;
+      });
+    }
   }, []);
 
   useEffect(() => {
@@ -309,9 +329,11 @@ export function RawQAWorkspace({ session, onOpenCall }: Props): JSX.Element {
                       >
                         <span className="text-[13.5px] min-w-0">
                           {c.call_title}
-                          {c.is_high_risk && (
-                            <span className="text-[11px] text-[#AC3A2A] ml-2">escalation</span>
-                          )}
+                          {/* Category first, from the authoritative risk
+                              record — is_high_risk only ever said "yes". */}
+                          <span className="ml-2 inline-block">
+                            <RiskContextBadge context={risks.get(c.call_id)} />
+                          </span>
                           <OriginalFileLine files={files.get(c.call_id)} />
                         </span>
                         <span className="flex items-center gap-3 shrink-0">

@@ -41,6 +41,10 @@ export default function App(): JSX.Element {
     open: false,
   });
   const [overlay, setOverlay] = useState<Overlay>(null);
+  // Which Raw QA tab to open on. Set when a raw submission finishes, so the
+  // reviewer lands on their submitted work rather than the queue they just
+  // emptied; reset whenever they navigate by hand (0074).
+  const [rawQaTab, setRawQaTab] = useState<"todo" | "submitted">("todo");
 
   if (envCheck && !envCheck.ok) {
     return (
@@ -80,6 +84,23 @@ export default function App(): JSX.Element {
   const allowed = visibleWorkspaces(session.permissions).map((w) => w.key);
   const active = allowed.includes(workspace) ? workspace : "dashboard";
 
+  /**
+   * A submitted evaluation is finished work, not an open task.
+   *
+   * Raw QA and Calibration are separate workflows and land in different
+   * places: a reviewer goes to their own submitted work, a trainer back to the
+   * queue. Called only after the submission has committed and been re-read.
+   */
+  const afterSubmission = (kind: "raw" | "calibrated"): void => {
+    setOverlay(null);
+    if (kind === "raw") {
+      setRawQaTab("submitted");
+      setWorkspace("rawqa");
+    } else {
+      setWorkspace("calibration");
+    }
+  };
+
   const openCall = (id: string): void => setOverlay({ kind: "call", id });
   const openRecord = (id: string): void => setOverlay({ kind: "record", id });
   const close = (): void => setOverlay(null);
@@ -90,11 +111,17 @@ export default function App(): JSX.Element {
       active={active}
       onNavigate={(w) => {
         setOverlay(null);
+        setRawQaTab("todo");
         setWorkspace(w);
       }}
     >
       {overlay?.kind === "call" ? (
-        <CallDetail callId={overlay.id} session={session} onBack={close} />
+        <CallDetail
+          callId={overlay.id}
+          session={session}
+          onBack={close}
+          onEvaluationSubmitted={afterSubmission}
+        />
       ) : overlay?.kind === "record" ? (
         <QualityRecord
           callId={overlay.id}
@@ -103,7 +130,7 @@ export default function App(): JSX.Element {
           onOpenCall={openCall}
         />
       ) : active === "rawqa" ? (
-        <RawQAWorkspace session={session} onOpenCall={openCall} />
+        <RawQAWorkspace session={session} onOpenCall={openCall} initialTab={rawQaTab} />
       ) : active === "calibration" ? (
         <CalibrationWorkspace onOpenCall={openCall} session={session} />
       ) : active === "library" ? (

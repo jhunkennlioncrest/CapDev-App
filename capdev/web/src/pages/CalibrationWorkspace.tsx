@@ -8,6 +8,8 @@ import { getQueue, startCalibration, type QueueItem } from "@/lib/evaluation";
 import { formatDate, formatDuration } from "@/lib/format";
 import { OriginalFileLine } from "@/components/OriginalFileLine";
 import { getRecordingFiles, type CallRecordingFiles } from "@/lib/recordingFiles";
+import { RiskContextBadge } from "@/components/RiskRecordList";
+import { riskContextFor, type RiskContext } from "@/lib/risk";
 
 // The trainer's workspace answers one question: what should I calibrate next?
 // Reviewer groupings are how a reviewer organises their own week — they are
@@ -30,6 +32,7 @@ export function CalibrationWorkspace({ onOpenCall, session }: Props): JSX.Elemen
   const [tab, setTab] = useState<Tab>("ready");
   const [queue, setQueue] = useState<QueueItem[]>([]);
   const [files, setFiles] = useState<Map<string, CallRecordingFiles>>(new Map());
+  const [risks, setRisks] = useState<Map<string, RiskContext>>(new Map());
   const [escalationsOnly, setEscalationsOnly] = useState(false);
   const [starting, setStarting] = useState<string | null>(null);
   const [uploadOpen, setUploadOpen] = useState(false);
@@ -41,7 +44,10 @@ export function CalibrationWorkspace({ onOpenCall, session }: Props): JSX.Elemen
     try {
       const q = await getQueue();
       setQueue(q);
-      setFiles(await getRecordingFiles(q.map((x) => x.call_id)));
+      const ids = q.map((x) => x.call_id);
+      const [f, r] = await Promise.all([getRecordingFiles(ids), riskContextFor(ids)]);
+      setFiles(f);
+      setRisks(r);
       // Throughput matters to a trainer deciding whether to keep going.
       const { data: counts } = await supabase
         .from("v_calibration_queue_counts")
@@ -188,6 +194,7 @@ export function CalibrationWorkspace({ onOpenCall, session }: Props): JSX.Elemen
                   key={q.assignment_id ?? q.call_id}
                   item={q}
                   files={files.get(q.call_id)}
+                  risk={risks.get(q.call_id)}
                   starting={starting === (q.raw_evaluation_id ?? q.call_id)}
                   onStart={() => void begin(q.raw_evaluation_id, q.call_id)}
                 />
@@ -205,6 +212,7 @@ export function CalibrationWorkspace({ onOpenCall, session }: Props): JSX.Elemen
                 key={q.assignment_id ?? q.call_id}
                 item={q}
                 files={files.get(q.call_id)}
+                risk={risks.get(q.call_id)}
                 starting={starting === (q.raw_evaluation_id ?? q.call_id)}
                 onStart={() => onOpenCall(q.call_id)}
                 label="Continue"
@@ -225,12 +233,14 @@ export function CalibrationWorkspace({ onOpenCall, session }: Props): JSX.Elemen
 function QueueRow({
   item,
   files,
+  risk,
   starting,
   onStart,
   label = "Calibrate",
 }: {
   item: QueueItem;
   files: CallRecordingFiles | undefined;
+  risk: RiskContext | undefined;
   starting: boolean;
   onStart: () => void;
   label?: string;
@@ -240,11 +250,7 @@ function QueueRow({
       <div className="min-w-0 flex-1">
         <div className="flex items-baseline gap-2.5 flex-wrap">
           <h3 className="font-display text-lg">{item.call_title}</h3>
-          {item.is_high_risk && (
-            <span className="text-[11px] border border-[#AC3A2A] text-[#AC3A2A] rounded-full px-2 py-0.5">
-              Escalation
-            </span>
-          )}
+          <RiskContextBadge context={risk} />
         </div>
         <p className="text-[12px] text-ink-45 mt-0.5">
           {item.agent_name || "Rep not set"} &middot; observed by {item.reviewer_name ?? "—"}{" "}

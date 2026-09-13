@@ -25,6 +25,7 @@ import {
 } from "@/lib/transcript";
 import { formatDuration, formatCallDate } from "@/lib/format";
 import { OriginalFileLine } from "@/components/OriginalFileLine";
+import { CallRiskRecord } from "@/components/RiskRecordList";
 import { getRecordingFiles, type CallRecordingFiles } from "@/lib/recordingFiles";
 import { EvaluationPanel } from "@/pages/EvaluationPanel";
 import { workspaceFor } from "@/lib/evaluation";
@@ -35,9 +36,14 @@ interface Props {
   callId: string;
   session: Session;
   onBack: () => void;
+  /**
+   * A submission finished and committed. The call is done with this person
+   * for now, so the host closes it and sends them to their own queue (0074).
+   */
+  onEvaluationSubmitted?: (kind: "raw" | "calibrated") => void;
 }
 
-export function CallDetail({ callId, session, onBack }: Props): JSX.Element {
+export function CallDetail({ callId, session, onBack, onEvaluationSubmitted }: Props): JSX.Element {
   const [call, setCall] = useState<CallListItem | null>(null);
   const [files, setFiles] = useState<CallRecordingFiles | undefined>(undefined);
   const [transcript, setTranscript] = useState<StoredTranscript | null>(null);
@@ -434,6 +440,14 @@ export function CallDetail({ callId, session, onBack }: Props): JSX.Element {
         <CallTimeline status={call.workflow_status} callId={call.id} />
       </div>
 
+      {/* The permanent risk record. Previously readable only from inside the
+          calibration form, which meant it vanished the moment that form was
+          closed (0074). Read-only here; raising and determining stay in the
+          evaluation. */}
+      <div className="mt-4">
+        <CallRiskRecord callId={callId} />
+      </div>
+
       {error && <p className="mt-5 text-[13px] text-[#AC3A2A]">{error}</p>}
 
       {/* Pinned below the navigation, not underneath it. z-10 was the bug:
@@ -502,9 +516,11 @@ export function CallDetail({ callId, session, onBack }: Props): JSX.Element {
             segments={segments}
             onPlayClip={playClip}
             mode={workspace === "raw" && !forceCalibrate ? "raw" : "calibrated"}
-            canCalibrate={session.permissions.includes("calibration.perform")}
-            onStartCalibration={() => void beginDirect()}
             onClose={() => setEvaluating(false)}
+            onSubmitted={(kind) => {
+              setEvaluating(false);
+              onEvaluationSubmitted?.(kind);
+            }}
           />
         </div>
       )}
