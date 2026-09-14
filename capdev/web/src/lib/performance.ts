@@ -473,22 +473,158 @@ export async function calibrationDisagreements(
 }
 
 export interface CalibrationHotspot {
+  /**
+   * The criterion ROW's id, and the grouping key.
+   *
+   * Not the code, and not the label. Criteria are cloned per rubric version by
+   * copy_rubric_version(), so v2.0's "S1.1" is a different row from v1.0's
+   * "S1.1" — same code, possibly a different question. Grouping by id keeps
+   * them apart without anyone having to decide whether they are "the same
+   * criterion", which is a judgement the schema does not support making.
+   */
+  criterion_id: string;
   criterion_code: string;
   criterion_label: string;
+  /** Which rubric version this criterion row belongs to. */
+  version_label: string | null;
   compared: number;
   disagreements: number;
   disagreement_rate: number;
 }
 
-/** Criteria the rubric is being read two ways on. */
-export async function calibrationHotspots(): Promise<CalibrationHotspot[]> {
-  const { data, error } = await supabase
-    .from("v_calibration_hotspots")
-    .select("*")
-    .order("disagreement_rate", { ascending: false })
-    .limit(5);
-  if (error) throw new Error(error.message);
-  return (data ?? []) as CalibrationHotspot[];
+export interface CalibrationHotspotResult {
+  /** The top criteria by disagreement rate. Empty when nothing disagreed. */
+  rows: CalibrationHotspot[];
+  /**
+   * Every criterion comparison in the period, across all criteria.
+   *
+   * Carried so the caller can tell "nothing was compared" from "plenty was
+   * compared and nobody disagreed". An empty `rows` alone cannot.
+   */
+  comparisons: number;
+  /** Distinct rubric versions present, so the caller knows when to say so. */
+  versions: string[];
+}
+
+/** Rows per request. PostgREST's default is a cap, not a promise. */
+const HOTSPOT_PAGE = 1000;
+/** How many criteria the section lists. Unchanged from the view it replaces. */
+const HOTSPOT_TOP = 5;
+
+/**
+ * Criteria the rubric is being read two ways on, INSIDE A PERIOD.
+ *
+ * WHY NOT v_calibration_hotspots. That view aggregates to (org, criterion)
+ * with no date dimension at all — the same shape problem the representative
+ * views have. It cannot answer "September", and an all-time answer taken from
+ * it would also be one rubric version's answer, since it carries no version
+ * either. It is no longer read by this application.
+ *
+ * THE SOURCE IS v_calibration_comparison, and that choice is deliberate: it
+ * carries the SAME access predicate the hotspot view did —
+ * can_see_all_calibration_accuracy(), i.e. has_permission('calibration.perform')
+ * — plus a self-branch for a reviewer's own rows, and it is row-level, so it
+ * can be filtered by the calibration's submitted_at. Nothing about who may see
+ * criterion-level disagreement changes here, and the caller gates the read on
+ * the same permission besides, so a reviewer's own rows are never quietly
+ * promoted into a department list.
+ *
+ * Paged, never taken on trust: fifteen comparison rows per calibration means a
+ * few dozen calibrations already exceed a default page, and a truncated read
+ * does not error — it returns a disagreement rate computed from part of the
+ * period and presents it as all of it.
+ */
+export async function calibrationHotspotsForPeriod(
+  period: Period,
+): Promise<CalibrationHotspotResult> {
+  const range = periodRange(period);
+
+  interface Bucket {
+    code: string;
+    label: string;
+    versionId: string | null;
+    compared: number;
+    disagreements: number;
+  }
+  const byCriterion = new Map<string, Bucket>();
+  let comparisons = 0;
+
+  for (let from = 0; ; from += HOTSPOT_PAGE) {
+    let q = supabase
+      .from("v_calibration_comparison")
+      .select("criterion_id, criterion_code, criterion_label, rubric_version_id, aligned");
+    if (range) {
+      q = q.gte("submitted_at", range.startIso).lt("submitted_at", range.endIso);
+    }
+    const { data, error } = await q
+      .order("score_id", { ascending: true })
+      .range(from, from + HOTSPOT_PAGE - 1);
+    if (error) throw new Error(error.message);
+
+    const rows = (data ?? []) as {
+      criterion_id: string;
+      criterion_code: string;
+      criterion_label: string;
+      rubric_version_id: string | null;
+      aligned: boolean | null;
+    }[];
+
+    for (const r of rows) {
+      comparisons += 1;
+      const b = byCriterion.get(r.criterion_id) ?? {
+        code: r.criterion_code,
+        label: r.criterion_label,
+        versionId: r.rubric_version_id,
+        compared: 0,
+        disagreements: 0,
+      };
+      b.compared += 1;
+      // `aligned` is `variance = 'agreed'` in the view. Anything else — including
+      // a null variance — is not an agreement, which is how the department
+      // summary counts it too.
+      if (r.aligned !== true) b.disagreements += 1;
+      byCriterion.set(r.criterion_id, b);
+    }
+
+    if (rows.length < HOTSPOT_PAGE) break;
+  }
+
+  // Version labels, so two versions' identically-coded criteria can be told
+  // apart on screen. One read of a table that holds one row per rubric version.
+  const versionIds = [...new Set([...byCriterion.values()].map((b) => b.versionId).filter(Boolean))];
+  const labels = new Map<string, string>();
+  if (versionIds.length > 0) {
+    const { data } = await supabase.from("rubric_version").select("id, version_label");
+    for (const v of (data ?? []) as { id: string; version_label: string }[]) {
+      labels.set(v.id, v.version_label);
+    }
+  }
+
+  const rows: CalibrationHotspot[] = [...byCriterion.entries()]
+    .filter(([, b]) => b.disagreements > 0)
+    .map(([criterion_id, b]) => ({
+      criterion_id,
+      criterion_code: b.code,
+      criterion_label: b.label,
+      version_label: b.versionId ? labels.get(b.versionId) ?? null : null,
+      compared: b.compared,
+      disagreements: b.disagreements,
+      disagreement_rate: (100 * b.disagreements) / b.compared,
+    }))
+    // Rate first, as the view ordered it. The two tiebreakers are new and
+    // deliberate: with small samples several criteria share a rate exactly, and
+    // the view's unbroken tie left their order to the planner — so the same
+    // data could list a different five between two loads.
+    .sort(
+      (a, b) =>
+        b.disagreement_rate - a.disagreement_rate ||
+        b.disagreements - a.disagreements ||
+        a.criterion_code.localeCompare(b.criterion_code),
+    )
+    .slice(0, HOTSPOT_TOP);
+
+  const versions = [...new Set(rows.map((r) => r.version_label).filter((v): v is string => v !== null))].sort();
+  return { rows, comparisons, versions };
 }
 
 /* -------------------------------------------------------------------------- */

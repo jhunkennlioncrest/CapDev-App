@@ -233,7 +233,7 @@ export function HomeDashboard({
           performance in the 0077 visual pass so the page reads personal work →
           department scores → alignment → people, rather than interrupting that
           order in the middle. */}
-      <CalibrationAccuracySection session={session} />
+      <CalibrationAccuracySection session={session} period={period} />
 
       {canSeePerformance && onOpenRepPerformance && (
         <RepPerformanceSummary onOpen={onOpenRepPerformance} period={period} />
