@@ -95,9 +95,37 @@ export function reportUrl(request: ReportRequest): string {
   return `${window.location.pathname}?${params.toString()}`;
 }
 
+/**
+ * How many history entries deep into reports this entry is.
+ *
+ * Stored ON the history entry rather than in a module variable, because the
+ * browser owns the thing being counted. A module counter goes wrong the moment
+ * the reader presses Back or Forward themselves — it keeps counting while the
+ * browser moves the cursor underneath it. An entry's own state travels with it,
+ * survives a reload, and is restored on Back, so it cannot drift.
+ *
+ * Absent or zero means "this entry is not a report this tab opened" — either
+ * the application itself, or a report URL loaded cold from a link.
+ */
+interface ReportHistoryState {
+  capdevReportDepth?: number;
+}
+
+function reportDepth(): number {
+  const state: unknown = window.history.state;
+  if (typeof state !== "object" || state === null) return 0;
+  const depth = (state as ReportHistoryState).capdevReportDepth;
+  if (typeof depth !== "number" || !Number.isInteger(depth) || depth < 1) return 0;
+  return depth;
+}
+
+function stateAtDepth(depth: number): ReportHistoryState {
+  return depth > 0 ? { capdevReportDepth: depth } : {};
+}
+
 /** Open a report: a new history entry, so Back returns to the application. */
 export function pushReport(request: ReportRequest): void {
-  window.history.pushState({}, "", reportUrl(request));
+  window.history.pushState(stateAtDepth(reportDepth() + 1), "", reportUrl(request));
 }
 
 /**
@@ -105,14 +133,41 @@ export function pushReport(request: ReportRequest): void {
  *
  * Replaces rather than pushes: three period changes while reading one report
  * should not become three Back presses before the reader is out of it.
+ *
+ * The entry keeps its depth. Replacing changes what an entry says, never where
+ * it sits, so the way out from it is unchanged.
  */
 export function replaceReport(request: ReportRequest): void {
-  window.history.replaceState({}, "", reportUrl(request));
+  window.history.replaceState(stateAtDepth(reportDepth()), "", reportUrl(request));
 }
 
-/** Leave the report, returning the address bar to the plain application. */
+/**
+ * Leave the report.
+ *
+ * GOING BACK IS NOT THE SAME AS NAVIGATING TO WHERE BACK WOULD LAND. Pushing
+ * the application's own URL would leave the reader at
+ * application -> report -> application, where their next Back press reopens the
+ * report they just closed. So when this tab opened the report, this rewinds
+ * history by exactly the number of report entries it added, landing on the
+ * application entry the reader came from and leaving nothing behind to return
+ * to. `onReportChange` hears the popstate and the view follows the URL.
+ *
+ * A report loaded cold — a copied link, a new tab — has no application entry
+ * behind it to rewind to, and `history.back()` there would take the reader off
+ * the site entirely. That case REPLACES the address instead: the reader lands
+ * in the application, and Back still means whatever it meant before they
+ * arrived.
+ *
+ * The hash is left exactly as found. lib/accountSetup.ts owns it, and an exit
+ * path is no place to delete somebody's invite link.
+ */
 export function clearReport(): void {
-  window.history.pushState({}, "", window.location.pathname);
+  const depth = reportDepth();
+  if (depth > 0) {
+    window.history.go(-depth);
+    return;
+  }
+  window.history.replaceState({}, "", `${window.location.pathname}${window.location.hash}`);
 }
 
 /** Back and Forward must move between the report and the application. */
