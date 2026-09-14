@@ -137,7 +137,9 @@ export interface SharedPerformance {
   rubricLabel: string | null;
   observedCount: number;
   evaluatedCount: number;
+  /** Mean of the individual submitted Raw QA observation scores. */
   observedPct: number | null;
+  /** Mean of the individual submitted calibrated evaluation scores. */
   evaluatedPct: number | null;
   /**
    * null means the figure could not be read, NOT that it is zero. The two are
@@ -167,6 +169,29 @@ const STAGES: { key: string; label: string }[] = [
 
 /** Below this a percentage is reported with a caution rather than alone. */
 export const LOW_SAMPLE = 5;
+
+/**
+ * The pooled criteria-met ratio: sum(yes) over sum(applicable), across a set of
+ * assessments.
+ *
+ * NOT used by any Dashboard card, deliberately. Observed Score and Calibrated
+ * Score were both this until the follow-up pass and are now means of the
+ * individual assessment scores instead, so that the two cards sitting side by
+ * side can honestly be subtracted from each other.
+ *
+ * Kept because the measure itself is legitimate — it answers "of every
+ * applicable criterion the department assessed, how many were met", which is a
+ * real question, just a different one. If it comes back it comes back under its
+ * own name, "Criteria Met Rate", on its own card. Re-deriving it later from a
+ * commit message would be worse than leaving it here, named and explained.
+ */
+export function criteriaMetRate(
+  rows: { yes_count: number | null; applicable_count: number | null }[] | null,
+): number | null {
+  const yes = (rows ?? []).reduce((a, r) => a + (r.yes_count ?? 0), 0);
+  const app = (rows ?? []).reduce((a, r) => a + (r.applicable_count ?? 0), 0);
+  return app > 0 ? (100 * yes) / app : null;
+}
 
 /**
  * Stage performance, read from the CALIBRATED RUBRIC CRITERIA.
@@ -316,11 +341,10 @@ export async function sharedPerformance(): Promise<SharedPerformance> {
   const versionId = rubric.id;
 
   const [rawRows, calRows, alignment, nnRows] = await Promise.all([
-    // Counts and totals come from the same read: yes_count and
-    // applicable_count are summed here rather than averaged, because two
-    // evaluations can have different applicable denominators once criteria are
-    // N/A, and averaging their percentages would weight a four-criterion call
-    // the same as a fifteen-criterion one.
+    // yes_count and applicable_count come back with the rows because the two
+    // headline scores are built from them per assessment — see scoreMean()
+    // below. They are no longer summed across assessments; that pooled form is
+    // a different metric and no longer carries either card's name.
     supabase
       .from("evaluation")
       .select("yes_count, applicable_count")
@@ -363,14 +387,6 @@ export async function sharedPerformance(): Promise<SharedPerformance> {
     if (r.error) throw new Error(r.error.message);
   }
 
-  const pooled = (
-    rows: { yes_count: number | null; applicable_count: number | null }[] | null,
-  ): number | null => {
-    const yes = (rows ?? []).reduce((a, r) => a + (r.yes_count ?? 0), 0);
-    const app = (rows ?? []).reduce((a, r) => a + (r.applicable_count ?? 0), 0);
-    return app > 0 ? (100 * yes) / app : null;
-  };
-
   const raw = (rawRows.data ?? []) as { yes_count: number; applicable_count: number }[];
   const cal = (calRows.data ?? []) as {
     id: string;
@@ -380,28 +396,47 @@ export async function sharedPerformance(): Promise<SharedPerformance> {
   }[];
 
   /**
-   * CALIBRATED SCORE — the mean of the evaluation scores, not a pooled ratio.
+   * BOTH HEADLINE SCORES — the mean of the individual assessment scores.
    *
-   * overall_score is written by recompute_evaluation() as
-   * round(yes / (yes + no) * 100, 2): criteria met over criteria assessed, N/A
-   * already excluded. It is the authoritative per-evaluation figure, so it is
-   * read rather than recomputed from criterion rows here.
+   * One assessment, one vote. Observed Score and Calibrated Score sit side by
+   * side and are meant to be compared, and a comparison is only honest if both
+   * sides are built the same way. Both are now means; neither is the pooled
+   * ratio they used to be.
    *
-   * Averaging those gives every completed calibration equal weight, which is
-   * what the business means by a department score: four calls, four opinions,
-   * one average. The previous pooled form — sum(yes) / sum(applicable) — let a
-   * fifteen-criterion call outvote a four-criterion one, and a reader comparing
-   * this figure against a single representative's score could not reconcile
-   * them.
+   * WHERE EACH SCORE COMES FROM, because the two differ and the difference
+   * matters to anyone maintaining this:
    *
-   * The pooled measure is NOT deleted from the codebase; `pooled()` still
-   * serves Observed Score. If it is ever wanted for calibrations too, it wants
-   * its own name and its own card — "Criteria Met Rate" — and not this one.
+   *   Calibrated — evaluation.overall_score, READ. recompute_evaluation()
+   *     writes it as round(yes / (yes + no) * 100, 2), N/A already excluded.
+   *     It is the authoritative per-evaluation figure and is not recomputed.
+   *
+   *   Raw QA — COMPUTED here as 100 * yes_count / applicable_count.
+   *     recompute_evaluation() deliberately leaves overall_score null on a raw
+   *     observation, so there is no stored score to read. This is not a new
+   *     formula: applicable_count is yes + no, so it is the same arithmetic the
+   *     database applies to a calibration, over that observation's own
+   *     applicable criteria. An observation with nothing applicable contributes
+   *     nothing rather than a zero.
+   *
+   * The pooled measure is NOT deleted — see criteriaMetRate() above, which no
+   * card calls. If the department ever wants sum(yes) / sum(applicable) it
+   * wants that name and its own card. It is not this one.
    */
-  const meanOfScores = (rows: { overall_score: number | null }[]): number | null => {
-    const scored = rows.map((r) => r.overall_score).filter((v): v is number => v !== null);
-    if (scored.length === 0) return null;
-    return scored.reduce((a, v) => a + v, 0) / scored.length;
+  const scoreMean = (
+    rows: { overall_score?: number | null; yes_count: number | null; applicable_count: number | null }[],
+  ): number | null => {
+    const scores: number[] = [];
+    for (const r of rows) {
+      if (r.overall_score !== null && r.overall_score !== undefined) {
+        scores.push(r.overall_score);
+        continue;
+      }
+      const app = r.applicable_count ?? 0;
+      if (app > 0) scores.push((100 * (r.yes_count ?? 0)) / app);
+    }
+    if (scores.length === 0) return null;
+    // Averaged from the underlying numbers, never from rounded display strings.
+    return scores.reduce((a, v) => a + v, 0) / scores.length;
   };
 
   // Sequential, and deliberately so: the stage read is scoped by the exact
@@ -444,10 +479,8 @@ export async function sharedPerformance(): Promise<SharedPerformance> {
     rubricLabel: rubric.version_label,
     observedCount: raw.length,
     evaluatedCount,
-    // Observed Score stays POOLED for now. Changing it to a mean as well is a
-    // business decision, not a tidy-up, and it was deliberately left to John.
-    observedPct: pooled(raw),
-    evaluatedPct: meanOfScores(cal),
+    observedPct: scoreMean(raw),
+    evaluatedPct: scoreMean(cal),
     // Distinguishing "nothing to compare yet" from "you may not see this":
     // with no calibrations at all there is genuinely nothing, and that is a
     // zero-data state rather than a restricted one. A missing row while

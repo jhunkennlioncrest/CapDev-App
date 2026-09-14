@@ -79,8 +79,13 @@ export function PerformanceOverview(): JSX.Element | null {
             performance as measured by two different assessment sources. They
             are not a Raw QA reviewer's score and not a QA Trainer's score —
             the old "Raw QA performance" / "Trainer performance" captions read
-            as though they were, which is why they are gone. Same pooled
-            arithmetic as before, renamed only. */}
+            as though they were, which is why they are gone.
+
+            Both are now MEANS of the individual assessment scores, one call one
+            vote, and that is the point: two cards side by side invite
+            subtraction, and they can only be subtracted honestly if they are
+            built the same way. Neither is the pooled criteria-met ratio they
+            used to be. */}
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3">
           <StatCard
             icon="clipboard"
@@ -99,14 +104,14 @@ export function PerformanceOverview(): JSX.Element | null {
             accent
             label="Observed Score"
             value={pct(data.observedPct)}
-            detail="Criteria met across submitted Raw QA observations"
+            detail="Average submitted Raw QA observation score"
           />
           <StatCard
             icon="target"
             accent
             label="Calibrated Score"
             value={pct(data.evaluatedPct)}
-            detail="Criteria met across submitted QA Trainer evaluations"
+            detail="Average calibrated evaluation score"
           />
           {/* Not tinted red. 1.9% is a low disagreement rate — a good result —
               and colouring it as an alarm would assert the opposite. */}
