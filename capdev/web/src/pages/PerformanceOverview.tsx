@@ -1,15 +1,27 @@
 import { useEffect, useState } from "react";
 import {
-  sharedPerformance,
+  sharedPerformanceWithComparison,
+  comparePercent,
+  compareCount,
+  compareStage,
+  stageComparability,
   LOW_SAMPLE,
-  type SharedPerformance,
+  type Comparison,
+  type PerformanceComparison,
   type StageFigure,
 } from "@/lib/dashboard";
-import { formatPercent } from "@/lib/performance";
-import { SectionHeading, StatCard, Meter, PeriodSelect } from "@/components/dash";
+import { formatPercent, formatPointDelta, formatCountDelta } from "@/lib/performance";
+import {
+  SectionHeading,
+  StatCard,
+  Meter,
+  PeriodSelect,
+  DeltaLine,
+} from "@/components/dash";
 import {
   periodKey,
   periodLabel,
+  periodShortLabel,
   periodSentence,
   type Period,
 } from "@/lib/period";
@@ -60,19 +72,23 @@ export function PerformanceOverview({
   periods: Period[];
   onPeriodChange: (next: Period) => void;
 }): JSX.Element | null {
-  const [data, setData] = useState<SharedPerformance | null>(null);
+  const [comp, setComp] = useState<PerformanceComparison | null>(null);
   const [failed, setFailed] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
     setFailed(false);
-    setData(null);
+    setComp(null);
     void (async () => {
       try {
-        const next = await sharedPerformance(period);
+        // Selected period AND, for a month, the one before it — in one call,
+        // through the same function, so both sides of every subtraction are
+        // built identically. All time has no previous month and costs exactly
+        // what 0078-A cost.
+        const next = await sharedPerformanceWithComparison(period);
         // A slow read for a period the reader has already moved off must not
         // overwrite the one they are now looking at.
-        if (!cancelled) setData(next);
+        if (!cancelled) setComp(next);
       } catch {
         if (!cancelled) setFailed(true);
       }
@@ -83,12 +99,62 @@ export function PerformanceOverview({
   }, [period]);
 
   if (failed) return null;
-  if (data === null) return null;
+  if (comp === null) return null;
 
+  const data = comp.current;
   const dis = data.disagreements;
   const nn = data.nonNegotiables;
   const options = periods.map(periodKey);
   const byKey = new Map(periods.map((p) => [periodKey(p), p]));
+
+  /**
+   * How a comparison outcome reads on the page.
+   *
+   * Returns undefined for "none", so the card renders with no comparison line
+   * at all rather than a placeholder. All time is not a monthly view missing
+   * its comparison; it is a different view, and a row of em dashes under every
+   * figure would make it look broken.
+   */
+  const vs = periodShortLabel(comp.previousPeriod ?? period, period);
+  const line = (c: Comparison): JSX.Element | undefined => {
+    switch (c.kind) {
+      case "none":
+        return undefined;
+      case "delta":
+        return (
+          <DeltaLine
+            text={`${
+              c.unit === "pts" ? formatPointDelta(c.value) : formatCountDelta(c.value)
+            } vs ${vs}`}
+          />
+        );
+      case "no-previous-month":
+        return <DeltaLine muted text="No previous-month comparison" />;
+      case "not-comparable-last-month":
+        return <DeltaLine muted text="No comparable data last month" />;
+      case "no-data-selected":
+        return <DeltaLine muted text={`No data in ${periodLabel(period)}`} />;
+      case "rubric-changed":
+        return <DeltaLine muted text="Rubric changed — not comparable" />;
+      case "unavailable":
+        return <DeltaLine muted text="Comparison unavailable" />;
+    }
+  };
+
+  // Decided once for the period, not per stage: a rubric change invalidates
+  // every stage comparison at once, and five copies of one sentence under five
+  // meters is noise rather than emphasis.
+  const stageGate = stageComparability(comp);
+  const stageNote =
+    stageGate.kind === "comparable" || stageGate.kind === "none"
+      ? null
+      : stageGate.kind === "rubric-changed"
+        ? "Rubric changed — not comparable"
+        : stageGate.kind === "no-previous-month"
+          ? "No previous-month comparison"
+          : stageGate.kind === "no-data-selected"
+            ? `No data in ${periodLabel(period)}`
+            : "Comparison unavailable";
 
   return (
     <>
@@ -141,16 +207,22 @@ export function PerformanceOverview({
             built the same way. Neither is the pooled criteria-met ratio they
             used to be. */}
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3">
+          {/* Counts move in units, scores move in percentage POINTS. The two
+              formatters are separate so a count can never acquire a "pts"
+              suffix and a percentage can never be reported as relative growth,
+              which on a base of three evaluations would dramatise noise. */}
           <StatCard
             icon="clipboard"
             label="Observed"
             value={String(data.observedCount)}
+            comparison={line(compareCount(comp, (p) => p.observedCount))}
             detail="submitted Raw QA observations"
           />
           <StatCard
             icon="clock"
             label="Evaluated"
             value={String(data.evaluatedCount)}
+            comparison={line(compareCount(comp, (p) => p.evaluatedCount))}
             detail="submitted calibrated evaluations"
           />
           <StatCard
@@ -158,6 +230,7 @@ export function PerformanceOverview({
             accent
             label="Observed Score"
             value={pct(data.observedPct)}
+            comparison={line(comparePercent(comp, (p) => p.observedPct))}
             detail="Average submitted Raw QA observation score"
           />
           <StatCard
@@ -165,6 +238,7 @@ export function PerformanceOverview({
             accent
             label="Calibrated Score"
             value={pct(data.evaluatedPct)}
+            comparison={line(comparePercent(comp, (p) => p.evaluatedPct))}
             detail="Average calibrated evaluation score"
           />
           {/* Not tinted red. 1.9% is a low disagreement rate — a good result —
@@ -172,10 +246,15 @@ export function PerformanceOverview({
           {/* Three states, never collapsed: restricted, nothing compared, and a
               measured zero. "0%" with no denominator claimed perfect alignment
               for a month in which nobody calibrated anything. */}
+          {/* The movement is not tinted either. A falling disagreement rate is
+              a good result and a rising one is a bad one, which is the exact
+              opposite of the two score cards beside it — one colour rule would
+              be wrong for half this row. */}
           <StatCard
             icon="compare"
             label="Disagreements"
             value={dis === null || dis.pct === null ? "—" : pct(dis.pct)}
+            comparison={line(comparePercent(comp, (p) => p.disagreements?.pct ?? null))}
             detail={
               dis === null
                 ? "Restricted for your role"
@@ -191,9 +270,10 @@ export function PerformanceOverview({
         <SectionHeading
           title="Stage performance"
           meta={
-            data.stageGroups
+            (data.stageGroups
               ? "Calibrated rubric performance · split by rubric version"
-              : "Calibrated rubric performance"
+              : "Calibrated rubric performance") +
+            (stageNote ? ` · ${stageNote}` : "")
           }
         />
 
@@ -235,10 +315,14 @@ export function PerformanceOverview({
               </div>
             ))}
             <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
+              {/* Non-Negotiables survives a rubric change intact: it is a pass
+                  rate over whole evaluations, not a ratio of criteria, so it
+                  compares even when the stages beside it cannot. */}
               <Meter
                 distinct
                 label="Non-Negotiables"
                 pct={nn === null ? null : nn.pct}
+                comparison={line(comparePercent(comp, (p) => p.nonNegotiables?.pct ?? null))}
                 detail={
                   nn === null
                     ? "No results yet"
@@ -249,13 +333,25 @@ export function PerformanceOverview({
           </div>
         ) : (
           <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
+            {/* The movement is computed from the POOLED criterion sums of each
+                month, never from the two rounded percentages on screen. On the
+                current data that is the difference between +15.6 and +15.5 for
+                Opening — small, and exactly the kind of small that makes a
+                reader who checks the arithmetic stop trusting the page. */}
             {data.stages.map((st) => (
-              <Meter key={st.key} label={st.label} pct={st.pct} detail={stageDetail(st)} />
+              <Meter
+                key={st.key}
+                label={st.label}
+                pct={st.pct}
+                comparison={stageNote ? undefined : line(compareStage(comp, st.key))}
+                detail={stageDetail(st)}
+              />
             ))}
             <Meter
               distinct
               label="Non-Negotiables"
               pct={nn === null ? null : nn.pct}
+              comparison={line(comparePercent(comp, (p) => p.nonNegotiables?.pct ?? null))}
               detail={
                 nn === null
                   ? "No results yet"

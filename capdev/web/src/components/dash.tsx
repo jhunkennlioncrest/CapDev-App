@@ -110,12 +110,19 @@ export function StatCard({
   label,
   value,
   detail,
+  comparison,
   accent = false,
 }: {
   icon: IconName;
   label: string;
   value: string;
   detail?: string;
+  /**
+   * Month-on-month context (0078-B). Sits between the figure and the detail
+   * line, which is the order the eye should read them in: what it is now, how
+   * that moved, then what it is made of.
+   */
+  comparison?: React.ReactNode;
   accent?: boolean;
 }): JSX.Element {
   return (
@@ -131,8 +138,50 @@ export function StatCard({
       >
         {value}
       </p>
+      {comparison !== undefined && comparison !== null && (
+        <div className="mt-1.5">{comparison}</div>
+      )}
       {detail && <p className="text-[11.5px] text-ink-45 mt-2 leading-snug">{detail}</p>}
     </div>
+  );
+}
+
+/* -------------------------------------------------------------------------- */
+/* Month-on-month line (0078-B)                                               */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * A month-on-month movement, or the reason there isn't one.
+ *
+ * DELIBERATELY COLOURLESS. Every other direction indicator on this page — the
+ * Trend tag — is moss for up and clay for down, and that is safe there because
+ * a representative's score only moves one good way. It is not safe here: this
+ * same component prints the movement of Calibrated Score, where up is good,
+ * and of Disagreements, where up is bad. One colour rule across both would
+ * assert a judgement on half of them that the rubric never made, and a second
+ * per-metric rule would be a table of value judgements maintained by hand. The
+ * sign carries the direction; the reader supplies the meaning.
+ *
+ * `muted` separates a measurement from an explanation of why there isn't one,
+ * by weight rather than by hue: a movement sits at the page's secondary text
+ * tone, "No previous-month comparison" at its tertiary one, so a reader
+ * scanning a row of cards can tell data from absence without reading a word.
+ */
+export function DeltaLine({
+  text,
+  muted = false,
+}: {
+  text: string;
+  muted?: boolean;
+}): JSX.Element {
+  return (
+    <p
+      className={`text-[11.5px] leading-snug tabular-nums ${
+        muted ? "text-ink-45 italic" : "text-ink-70"
+      }`}
+    >
+      {text}
+    </p>
   );
 }
 
@@ -156,6 +205,7 @@ export function Meter({
   label,
   pct,
   detail,
+  comparison,
   distinct = false,
 }: {
   label: string;
@@ -164,6 +214,8 @@ export function Meter({
    *  many evaluations produced them, and those are two different units that
    *  must not be crushed onto one line. */
   detail: React.ReactNode;
+  /** Month-on-month context (0078-B), directly under the figure. */
+  comparison?: React.ReactNode;
   distinct?: boolean;
 }): JSX.Element {
   const shown = pct === null ? null : Math.max(0, Math.min(100, pct));
@@ -194,6 +246,9 @@ export function Meter({
       >
         {formatPercent(pct)}
       </p>
+      {comparison !== undefined && comparison !== null && (
+        <div className="mt-1.5">{comparison}</div>
+      )}
       {shown !== null && (
         <div
           className={`mt-3 h-1.5 rounded-full overflow-hidden ${

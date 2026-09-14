@@ -724,12 +724,56 @@ export function formatPercent(v: number | null): string {
   return `${Math.round(v * 10) / 10}%`;
 }
 
-/** "+6 pts", "-4 pts", "0 pts", or an em dash. The sign is never implicit. */
+/**
+ * A signed movement, one decimal at most, with an explicit sign and a real
+ * minus sign (U+2212) rather than a hyphen.
+ *
+ * Zero prints as "0", never "+0" or "−0": no movement has no direction, and a
+ * signed zero reads as a rounding artefact.
+ */
+function signedDelta(value: number | null, unit: string): string {
+  if (value === null || !Number.isFinite(value)) return "—";
+  const rounded = Math.round(value * 10) / 10;
+  const suffix = unit === "" ? "" : ` ${unit}`;
+  if (rounded === 0) return `0${suffix}`;
+  return `${rounded > 0 ? "+" : "−"}${Math.abs(rounded)}${suffix}`;
+}
+
+/** "+6 pts", "−4 pts", "0 pts", or an em dash. The sign is never implicit. */
 export function formatGap(gap: number | null): string {
-  if (gap === null) return "—";
-  const rounded = Math.round(gap * 10) / 10;
-  if (rounded === 0) return "0 pts";
-  return `${rounded > 0 ? "+" : "−"}${Math.abs(rounded)} pts`;
+  return signedDelta(gap, "pts");
+}
+
+/**
+ * PERCENTAGE-POINT movement, for month-on-month comparison of a percentage
+ * (0078-B).
+ *
+ * Points, never percent. September 60% against August 50% is +10 POINTS, not
+ * +20%: the second is the relative change and is a different, larger-sounding
+ * number that answers a question nobody asked. Both would be defensible on
+ * their own; only one can be printed beside a percentage without the reader
+ * having to guess which was meant.
+ *
+ * Identical formatting to formatGap on purpose — the Raw QA/Trainer gap and a
+ * month-on-month movement are both point movements, and two conventions for
+ * one unit on one page is how a reader stops trusting either.
+ */
+export function formatPointDelta(delta: number | null): string {
+  return signedDelta(delta, "pts");
+}
+
+/**
+ * COUNT movement, for month-on-month comparison of a true count (0078-B).
+ *
+ * Absolute units, never percentage growth. Eighteen observations against
+ * fourteen is "+4", not "+28.6%" — a percentage change on a base of fourteen
+ * dramatises noise, and the reader can already see both months' counts.
+ *
+ * Counts are whole, so no decimal is ever produced here in practice; the shared
+ * formatter's rounding is a safety net rather than a feature.
+ */
+export function formatCountDelta(delta: number | null): string {
+  return signedDelta(delta, "");
 }
 
 /* -------------------------------------------------------------------------- */

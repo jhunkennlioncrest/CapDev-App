@@ -11,7 +11,7 @@ import {
   trainerFigures,
   type ActivityFigures,
 } from "@/lib/dashboard";
-import { currentMonthPeriod, periodLabel, type Period } from "@/lib/period";
+import { allTimePeriod, periodKey, periodLabel, type Period } from "@/lib/period";
 import type { Session } from "@/lib/types";
 import type { Workspace } from "@/components/AppShell";
 
@@ -58,10 +58,21 @@ export function HomeDashboard({
    * The control itself is rendered inside the performance section, where a
    * reader looking for it will be.
    *
-   * It defaults to the current month, reckoned in the business timezone rather
-   * than the browser's.
+   * IT DEFAULTS TO ALL TIME (0078-B), not to the current month.
+   *
+   * The Dashboard is opened most often by people who manage the department
+   * rather than work its queue, and the first thing they need is the whole
+   * picture — not whichever slice of it the calendar happens to be in. Early in
+   * a month that slice is also the least reliable number on the page: on the
+   * 2nd, "Calibrated Score 100%" over one evaluation is arithmetically true and
+   * practically meaningless, and it was the first figure anyone saw. All time
+   * is the safest honest default; a month is one click away and says so.
+   *
+   * The selection does not reset to the current month on navigation or
+   * refresh. It also does not persist — there is no saved preference yet, and
+   * inventing one here would be a second source of truth for the period.
    */
-  const [period, setPeriod] = useState<Period>(() => currentMonthPeriod());
+  const [period, setPeriod] = useState<Period>(() => allTimePeriod());
   const [periods, setPeriods] = useState<Period[]>([]);
 
   // Operational counts and the list of available periods: both are independent
@@ -73,7 +84,10 @@ export function HomeDashboard({
       canCalibrate ? getQueue() : Promise.resolve([]),
       availablePeriods(),
     ]);
-    setPeriods([...options, { kind: "all" } as Period]);
+    // ALL TIME FIRST: it is the default, the broad view, and the one option
+    // that is never a small sample. Historical months follow, newest first, as
+    // availablePeriods() returns them.
+    setPeriods(dedupePeriods([allTimePeriod(), ...options]));
     setCounts({
       pendingRaw: raw.length,
       waitingCalibration: queue.filter((q) => q.status === "waiting").length,
@@ -222,7 +236,13 @@ export function HomeDashboard({
       {canSeePerformance && (
         <PerformanceOverview
           period={period}
-          periods={periods.length > 0 ? periods : [period, { kind: "all" }]}
+          /* Deduplicated, not concatenated. Before the period list loads, the
+             fallback is the selected period plus all time — and with all time
+             now the default those are the same option, which would render a
+             duplicated <option> under a duplicated React key. */
+          periods={
+            periods.length > 0 ? periods : dedupePeriods([allTimePeriod(), period])
+          }
           onPeriodChange={setPeriod}
         />
       )}
@@ -241,6 +261,25 @@ export function HomeDashboard({
 
     </div>
   );
+}
+
+/**
+ * First occurrence wins, so the caller's ordering is the ordering — all time
+ * first, then months newest first.
+ *
+ * Exists because two code paths can each supply all time: the loaded option
+ * list and the pre-load fallback, which now begins with the default period.
+ */
+function dedupePeriods(list: Period[]): Period[] {
+  const seen = new Set<string>();
+  const out: Period[] = [];
+  for (const p of list) {
+    const key = periodKey(p);
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push(p);
+  }
+  return out;
 }
 
 function Card({

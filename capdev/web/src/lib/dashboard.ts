@@ -4,6 +4,7 @@ import {
   monthsInSpan,
   periodKey,
   periodRange,
+  previousMonthPeriod,
   type Period,
 } from "@/lib/period";
 
@@ -185,6 +186,18 @@ export interface SharedPerformance {
    * happened.
    */
   rubricLabels: string[];
+  /**
+   * The rubric versions of the CALIBRATED evaluations in this period, by id
+   * (0078-B).
+   *
+   * Ids, not labels: a label is a human string that two versions could in
+   * principle share, and the question this answers — "were these two months
+   * measured with the same instrument" — has to be decided on identity.
+   *
+   * Raw observations are excluded because Stage Performance is calibrated-only,
+   * and this exists to gate the stage comparison.
+   */
+  calibratedVersionIds: string[];
 }
 
 export interface StageGroup {
@@ -556,6 +569,7 @@ export async function sharedPerformance(period: Period): Promise<SharedPerforman
     stageGroups: null,
     nonNegotiables: null,
     rubricLabels: [],
+    calibratedVersionIds: [],
   };
 
   // ONE MENTAL MODEL, TWO PERIODS.
@@ -725,5 +739,253 @@ export async function sharedPerformance(period: Period): Promise<SharedPerforman
     // What the period actually contains, in both modes — never the active
     // rubric standing in for the data.
     rubricLabels,
+    calibratedVersionIds: calVersions,
+  };
+}
+
+
+/* -------------------------------------------------------------------------- */
+/* Month-on-month (0078-B)                                                     */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * "How did we perform in September?" was 0078-A. "How did September compare
+ * with August?" is this.
+ *
+ * THIS IS NOT TREND. The representative Trend column compares one calibrated
+ * evaluation with the one before it, whenever those happened. This compares a
+ * whole month's aggregate with the whole of the month before it. They answer
+ * different questions, they can point in opposite directions at the same time
+ * without either being wrong, and they deliberately share no vocabulary:
+ * nothing here says Improving, Declining, Stable or Baseline.
+ *
+ * WHAT A COMPARISON CAN HONESTLY SAY. Seven outcomes, and the reason there are
+ * seven rather than one number-or-nothing is that "no delta" has several
+ * causes and a reader needs to know which one they are looking at:
+ *
+ *   delta                     — a real, measured movement
+ *   none                      — all time; there is no month before "everything"
+ *   no-previous-month         — the preceding calendar month has no assessments
+ *   not-comparable-last-month — last month happened, but this metric was not
+ *                               measurable in it (e.g. every criterion N/A)
+ *   no-data-selected          — the SELECTED month has nothing to compare from
+ *   rubric-changed            — the instrument changed between the two months
+ *   unavailable               — the previous month could not be READ
+ *
+ * The last one matters more than it looks. A failed read and an empty month are
+ * indistinguishable if both render "No previous-month comparison", and one of
+ * those two is a claim about the department that nobody verified.
+ */
+export type Comparison =
+  | { kind: "delta"; value: number; unit: "pts" | "count" }
+  | { kind: "none" }
+  | { kind: "no-previous-month" }
+  | { kind: "not-comparable-last-month" }
+  | { kind: "no-data-selected" }
+  | { kind: "rubric-changed" }
+  | { kind: "unavailable" };
+
+/**
+ * Whether stage figures from the two months may be subtracted from each other
+ * at all. Decided once for the period rather than per stage, because the reason
+ * they cannot be — a rubric change — applies to every stage at once, and five
+ * copies of the same sentence under five meters is noise.
+ */
+export type StageComparability =
+  | { kind: "comparable" }
+  | { kind: "none" }
+  | { kind: "no-previous-month" }
+  | { kind: "no-data-selected" }
+  | { kind: "rubric-changed" }
+  | { kind: "unavailable" };
+
+export interface PerformanceComparison {
+  /** The selected period's figures. Always present. */
+  current: SharedPerformance;
+  /**
+   * The preceding calendar month's figures, or null — either because the
+   * selected period is all time, or because that month could not be read.
+   * `previousFailed` tells the two apart.
+   */
+  previous: SharedPerformance | null;
+  /** The period `previous` describes, for labelling. Null for all time. */
+  previousPeriod: Period | null;
+  /**
+   * True when a previous month EXISTS but its read threw. The page then says
+   * the comparison is unavailable rather than asserting the month was empty.
+   */
+  previousFailed: boolean;
+}
+
+/**
+ * A month is "measured" when at least one assessment was submitted in it.
+ *
+ * The distinction the whole comparison model rests on: a month with no
+ * assessments has no measurement, so subtracting from it is subtracting from
+ * an absence. "+6 vs July" would tell a reader that July was measured and came
+ * out at zero, when in fact July did not happen. Counts are the tempting
+ * exception — zero observations really is zero — but a count of zero in an
+ * unworked month is an artefact of nobody being there, not a result, and
+ * printing it beside a genuine +2 makes the two look like the same kind of
+ * fact.
+ */
+function measured(p: SharedPerformance): boolean {
+  return p.observedCount + p.evaluatedCount > 0;
+}
+
+/**
+ * The outcomes that do not depend on which metric is being compared.
+ *
+ * Its return type is the INTERSECTION of what both Comparison and
+ * StageComparability admit, so both callers can return it unchanged. Typing it
+ * as Comparison and casting at the stage call site would have been one
+ * assertion away from letting a "delta" escape into a union that has no place
+ * for one.
+ */
+type StructuralOutcome =
+  | { kind: "none" }
+  | { kind: "no-previous-month" }
+  | { kind: "no-data-selected" }
+  | { kind: "unavailable" };
+
+function structural(c: PerformanceComparison): StructuralOutcome | null {
+  if (c.previousPeriod === null) return { kind: "none" };
+  if (c.previousFailed || c.previous === null) return { kind: "unavailable" };
+  if (!measured(c.current)) return { kind: "no-data-selected" };
+  if (!measured(c.previous)) return { kind: "no-previous-month" };
+  return null;
+}
+
+/**
+ * Percentage-point movement for a percentage metric.
+ *
+ * Percentages compare across rubric versions deliberately: Observed Score,
+ * Calibrated Score and the Non-Negotiables pass rate are ASSESSMENT-level
+ * measures, and every assessment carries its own complete measurement under
+ * whichever rubric it was submitted against. Stage performance does not have
+ * that property, which is why it has its own gate below.
+ */
+export function comparePercent(
+  c: PerformanceComparison,
+  pick: (p: SharedPerformance) => number | null,
+): Comparison {
+  const structuralResult = structural(c);
+  if (structuralResult) return structuralResult;
+  const now = pick(c.current);
+  const then = pick(c.previous as SharedPerformance);
+  // This month has no value to compare FROM. The figure already renders as an
+  // em dash; a comparison line under it would be explaining an absence that is
+  // already visible.
+  if (now === null) return { kind: "none" };
+  if (then === null) return { kind: "not-comparable-last-month" };
+  return { kind: "delta", value: now - then, unit: "pts" };
+}
+
+/**
+ * Absolute movement for a true count.
+ *
+ * A previous count of zero inside a MEASURED month is a real zero and is
+ * compared normally — the month happened, and nothing of this kind was
+ * submitted in it. That is a different fact from an unworked month, which
+ * `structural` has already filtered out above.
+ */
+export function compareCount(
+  c: PerformanceComparison,
+  pick: (p: SharedPerformance) => number,
+): Comparison {
+  const structuralResult = structural(c);
+  if (structuralResult) return structuralResult;
+  return {
+    kind: "delta",
+    value: pick(c.current) - pick(c.previous as SharedPerformance),
+    unit: "count",
+  };
+}
+
+/**
+ * Whether the two months' stages were measured with the same instrument.
+ *
+ * LIKE FOR LIKE OR NOT AT ALL. copy_rubric_version() clones every criterion
+ * into new rows, so v2.0's "Opening" is a different set of questions from
+ * v1.0's — possibly a different number of them, possibly asking something else
+ * entirely. Nothing in the schema records that two versions' stages are
+ * equivalent, and no amount of matching stage NAMES establishes it. So the
+ * comparison renders only when both months were calibrated against exactly one
+ * rubric version and it is the same one; otherwise the page says the rubric
+ * changed, which is the true and useful answer.
+ *
+ * A month that itself spans two versions fails this test by construction — it
+ * has no single instrument to compare with — and keeps the 0078-A split blocks.
+ */
+export function stageComparability(c: PerformanceComparison): StageComparability {
+  const structuralResult = structural(c);
+  if (structuralResult) return structuralResult;
+  const now = c.current.calibratedVersionIds;
+  const then = (c.previous as SharedPerformance).calibratedVersionIds;
+  if (now.length !== 1 || then.length !== 1 || now[0] !== then[0]) {
+    return { kind: "rubric-changed" };
+  }
+  return { kind: "comparable" };
+}
+
+/** One stage's movement, once `stageComparability` has allowed it. */
+export function compareStage(
+  c: PerformanceComparison,
+  key: string,
+): Comparison {
+  const gate = stageComparability(c);
+  if (gate.kind !== "comparable") return gate;
+  const now = c.current.stages.find((s) => s.key === key)?.pct ?? null;
+  const prev = (c.previous as SharedPerformance).stages.find((s) => s.key === key)?.pct ?? null;
+  // Every criterion N/A this month, or the stage never touched: the meter
+  // already says so in its own words.
+  if (now === null) return { kind: "none" };
+  // Measured now, not measurable then — an all-N/A stage last month is not 0%
+  // and must never be subtracted from as though it were.
+  if (prev === null) return { kind: "not-comparable-last-month" };
+  return { kind: "delta", value: now - prev, unit: "pts" };
+}
+
+/**
+ * The selected period's figures and, for a month, the preceding month's.
+ *
+ * ONE EXTRA LOAD, NOT ONE PER CARD. The previous month goes through the very
+ * same sharedPerformance() the selected one does — same predicates, same
+ * paging, same arithmetic — so the two sides of every subtraction are provably
+ * built the same way, and the read cost is bounded at exactly twice a month
+ * rather than growing with the number of comparisons on screen. A per-metric or
+ * per-stage query would have been an N+1 in a section that renders eleven
+ * figures.
+ *
+ * ALL TIME COSTS NOTHING EXTRA. It has no previous month, so it issues exactly
+ * the reads 0078-A issued. That matters now that all time is the default view.
+ *
+ * A FAILED PREVIOUS READ DEGRADES THE COMPARISON, NOT THE PAGE. The selected
+ * month's figures are the page's job; last month's are context. If the context
+ * cannot be fetched the page still renders, and says so.
+ */
+export async function sharedPerformanceWithComparison(
+  period: Period,
+): Promise<PerformanceComparison> {
+  const previousPeriod = previousMonthPeriod(period);
+  if (previousPeriod === null) {
+    return {
+      current: await sharedPerformance(period),
+      previous: null,
+      previousPeriod: null,
+      previousFailed: false,
+    };
+  }
+
+  const [current, previous] = await Promise.all([
+    sharedPerformance(period),
+    sharedPerformance(previousPeriod).catch(() => null),
+  ]);
+
+  return {
+    current,
+    previous,
+    previousPeriod,
+    previousFailed: previous === null,
   };
 }

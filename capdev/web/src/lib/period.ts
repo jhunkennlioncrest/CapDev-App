@@ -133,6 +133,60 @@ export function currentMonthPeriod(now: Date = new Date()): Period {
   return { kind: "month", year: get("year"), month: get("month") };
 }
 
+/* -------------------------------------------------------------------------- */
+/* Month-on-month (0078-B)                                                     */
+/* -------------------------------------------------------------------------- */
+
+/** All time, as a value. A function rather than a shared constant so no caller
+ *  can mutate the one object every other caller is comparing against. */
+export function allTimePeriod(): Period {
+  return { kind: "all" };
+}
+
+/**
+ * The immediately preceding CALENDAR month. Null for all time, which has no
+ * previous month — there is nothing before "everything".
+ *
+ * Calendar arithmetic, never 30-day subtraction: subtracting 30 days from
+ * 31 March lands in February and from 31 May lands in April, so a "previous
+ * month" built that way is wrong for seven months of the year and right for
+ * the rest, which is the worst kind of wrong. The month index is decremented
+ * and the year borrowed, exactly as a calendar does it.
+ *
+ * The result is ALWAYS the preceding month, even when that month contains no
+ * assessments. Skipping backwards to the last month that had data would
+ * silently compare September with July and label it "vs August" — or, worse,
+ * label it correctly and leave the reader to discover that a quiet month had
+ * been stepped over.
+ */
+export function previousMonthPeriod(period: Period): Period | null {
+  if (period.kind !== "month") return null;
+  const month = period.month === 1 ? 12 : period.month - 1;
+  const year = period.month === 1 ? period.year - 1 : period.year;
+  return { kind: "month", year, month };
+}
+
+/**
+ * How a comparison names the month it compares against: "August" within the
+ * same year, "December 2026" when the year differs.
+ *
+ * January 2027's previous month is December 2026, and "+4 pts vs December" in
+ * a January view invites the reader to supply the wrong year. The year is
+ * printed exactly when it is not the selected period's own.
+ */
+export function periodShortLabel(period: Period, relativeTo?: Period): string {
+  if (period.kind === "all") return "all time";
+  const sameYear =
+    relativeTo !== undefined &&
+    relativeTo.kind === "month" &&
+    relativeTo.year === period.year;
+  // `month` is 1-12 by this module's contract, so the index is always in range;
+  // the fallback exists because the compiler cannot know that and a silent
+  // "undefined 2026" on screen would be worse than an honest empty string.
+  const name = MONTH_NAMES[period.month - 1] ?? "";
+  return sameYear ? name : `${name} ${period.year}`;
+}
+
 /** "September 2026" / "All time". */
 export function periodLabel(period: Period): string {
   if (period.kind === "all") return "All time";
