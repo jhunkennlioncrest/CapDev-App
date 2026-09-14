@@ -145,16 +145,28 @@ export function PerformanceOverview({
   // every stage comparison at once, and five copies of one sentence under five
   // meters is noise rather than emphasis.
   const stageGate = stageComparability(comp);
-  const stageNote =
-    stageGate.kind === "comparable" || stageGate.kind === "none"
-      ? null
-      : stageGate.kind === "rubric-changed"
-        ? "Rubric changed — not comparable"
-        : stageGate.kind === "no-previous-month"
-          ? "No previous-month comparison"
-          : stageGate.kind === "no-data-selected"
-            ? `No data in ${periodLabel(period)}`
-            : "Comparison unavailable";
+  const stageNote = ((): string | null => {
+    switch (stageGate.kind) {
+      case "comparable":
+      case "none":
+        return null;
+      // Only ever said when BOTH months were calibrated and the versions
+      // actually differ. A month with no calibrations says nothing about which
+      // rubric was in force, and this sentence must not be used to explain one.
+      case "rubric-changed":
+        return "Rubric changed — not comparable";
+      case "no-previous-month":
+        return "No previous-month comparison";
+      case "no-calibrated-previous":
+        return "No comparable data last month";
+      case "no-calibrated-selected":
+        return `No calibrated stage data in ${periodLabel(period)}`;
+      case "no-data-selected":
+        return `No data in ${periodLabel(period)}`;
+      case "unavailable":
+        return "Comparison unavailable";
+    }
+  })();
 
   return (
     <>

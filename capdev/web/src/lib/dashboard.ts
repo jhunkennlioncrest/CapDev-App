@@ -796,6 +796,24 @@ export type StageComparability =
   | { kind: "none" }
   | { kind: "no-previous-month" }
   | { kind: "no-data-selected" }
+  /**
+   * The selected month HAS assessments, but none of them are calibrated
+   * evaluations — so Stage Performance has nothing to measure this month.
+   * A distinct state from "no-data-selected", which means the month is empty
+   * of everything.
+   */
+  | { kind: "no-calibrated-selected" }
+  /**
+   * The previous month happened — Raw QA observed calls in it — but nobody
+   * calibrated any of them, so there is no stage figure to compare against.
+   *
+   * This case used to fall through to "rubric-changed", which was a false
+   * statement about the rubric: a month with no calibrations says nothing
+   * about which version was in force, and the page was asserting that a
+   * version change had occurred when the truth was simply that the
+   * measurement was never taken.
+   */
+  | { kind: "no-calibrated-previous" }
   | { kind: "rubric-changed" }
   | { kind: "unavailable" };
 
@@ -918,10 +936,44 @@ export function compareCount(
  * has no single instrument to compare with — and keeps the 0078-A split blocks.
  */
 export function stageComparability(c: PerformanceComparison): StageComparability {
-  const structuralResult = structural(c);
-  if (structuralResult) return structuralResult;
+  // NOT `structural()`, deliberately, and the reason is the whole correction.
+  //
+  // `structural()` asks whether a month was measured AT ALL —
+  // observedCount + evaluatedCount > 0 — which is the right question for every
+  // headline card, because those measure both kinds of assessment. STAGE
+  // PERFORMANCE IS CALIBRATED-ONLY. A month in which Raw QA observed four calls
+  // and nobody calibrated any of them is "measured" by the generic test and
+  // completely unmeasured by this section's.
+  //
+  // Running the generic test first and then reading calibratedVersionIds sent
+  // that month into the version comparison with an EMPTY version list, where
+  // `then.length !== 1` produced "Rubric changed — not comparable". The rubric
+  // had not changed. Nothing had been calibrated. The page was explaining an
+  // absence with the wrong cause, and the wrong cause happened to be the one
+  // that sounds like a governance event.
+  //
+  // The order below is the semantics, not an optimisation: the SELECTED month's
+  // own ability to be measured is settled before anything is said about the
+  // previous one, because five empty meters are explained by "nothing was
+  // calibrated this month", not by a fact about last month.
+  if (c.previousPeriod === null) return { kind: "none" };
+  if (c.previousFailed || c.previous === null) return { kind: "unavailable" };
+
+  // The selected month, first.
+  if (!measured(c.current)) return { kind: "no-data-selected" };
   const now = c.current.calibratedVersionIds;
-  const then = (c.previous as SharedPerformance).calibratedVersionIds;
+  if (now.length === 0) return { kind: "no-calibrated-selected" };
+
+  // Then the month it would be compared against.
+  if (!measured(c.previous)) return { kind: "no-previous-month" };
+  const then = c.previous.calibratedVersionIds;
+  if (then.length === 0) return { kind: "no-calibrated-previous" };
+
+  // Both months were calibrated. Like for like, or not at all: one version
+  // each, and the same one. More than one version on either side keeps the
+  // conservative answer — a month spanning a rubric change has no single
+  // instrument to compare with, and nothing in the schema establishes that two
+  // versions' stages ask the same questions.
   if (now.length !== 1 || then.length !== 1 || now[0] !== then[0]) {
     return { kind: "rubric-changed" };
   }
@@ -934,6 +986,16 @@ export function compareStage(
   key: string,
 ): Comparison {
   const gate = stageComparability(c);
+  // The two calibrated-only states have no place in the generic Comparison
+  // union — no headline metric can produce them — so they are translated here
+  // rather than widening a type that eleven other figures share.
+  //
+  // "nothing calibrated this month" renders nothing per meter: the meter
+  // already says "No data yet" in its own words, and the section note carries
+  // the explanation once. "nothing calibrated last month" is exactly the
+  // existing not-comparable-last-month case and reuses its sentence.
+  if (gate.kind === "no-calibrated-selected") return { kind: "none" };
+  if (gate.kind === "no-calibrated-previous") return { kind: "not-comparable-last-month" };
   if (gate.kind !== "comparable") return gate;
   const now = c.current.stages.find((s) => s.key === key)?.pct ?? null;
   const prev = (c.previous as SharedPerformance).stages.find((s) => s.key === key)?.pct ?? null;
