@@ -134,8 +134,14 @@ export function RepresentativeReport({
 
   const scope: ScopeEntry[] = [
     { label: "Reporting period", value: periodLabel(period) },
-    { label: "Observed", value: `${row?.observations ?? 0} Raw QA observations` },
-    { label: "Evaluated", value: `${row?.evaluations ?? 0} calibrated evaluations` },
+    {
+      label: "Observed",
+      value: `${row?.observations ?? 0} Raw QA observation${(row?.observations ?? 0) === 1 ? "" : "s"}`,
+    },
+    {
+      label: "Evaluated",
+      value: `${row?.evaluations ?? 0} calibrated evaluation${(row?.evaluations ?? 0) === 1 ? "" : "s"}`,
+    },
     { label: "Generated from", value: "CapDev" },
     { label: "Generated", value: formatDate(new Date().toISOString()) },
   ];

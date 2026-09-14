@@ -155,8 +155,14 @@ export function ExecutiveReport({
           ? "No assessments in this period"
           : data.rubricLabels.map((l) => `v${l}`).join(", "),
     },
-    { label: "Observed", value: `${data.observedCount} Raw QA observations` },
-    { label: "Evaluated", value: `${data.evaluatedCount} calibrated evaluations` },
+    {
+      label: "Observed",
+      value: `${data.observedCount} Raw QA observation${data.observedCount === 1 ? "" : "s"}`,
+    },
+    {
+      label: "Evaluated",
+      value: `${data.evaluatedCount} calibrated evaluation${data.evaluatedCount === 1 ? "" : "s"}`,
+    },
     { label: "Generated from", value: "CapDev" },
     { label: "Generated", value: formatDate(new Date().toISOString()) },
   ];

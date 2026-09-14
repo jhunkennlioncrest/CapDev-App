@@ -86,13 +86,22 @@ export function readReportFromUrl(
   };
 }
 
-/** The canonical URL for a report, preserving nothing else from the address. */
+/**
+ * The canonical URL for a report. The query string is this module's to own and
+ * is rewritten wholesale; everything else in the address is carried through.
+ *
+ * THE HASH IS CARRIED, NOT DROPPED. It belongs to lib/accountSetup.ts, which
+ * reads Supabase invite and recovery links out of it at module load. Building
+ * an address without it does not leave the hash alone -- it deletes it, which
+ * is exactly the thing this package promised never to do. Reading it here and
+ * writing it back unchanged is the whole of "not touching" it.
+ */
 export function reportUrl(request: ReportRequest): string {
   const params = new URLSearchParams();
   params.set(REPORT, request.kind === "executive" ? "executive" : "rep");
   if (request.kind === "representative") params.set(REP, request.repId);
   params.set(PERIOD, periodKey(request.period));
-  return `${window.location.pathname}?${params.toString()}`;
+  return `${window.location.pathname}?${params.toString()}${window.location.hash}`;
 }
 
 /**
