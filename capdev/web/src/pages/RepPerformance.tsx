@@ -25,10 +25,21 @@ export function RepPerformance({
   onBack,
   onOpenRecord,
   initialRepId,
+  onViewReport,
 }: {
   onBack: () => void;
   onOpenRecord: (callId: string) => void;
   initialRepId?: string | null;
+  /**
+   * Open the Representative report for the selected person (0079).
+   *
+   * THIS PAGE HAS NO PERIOD — it is scoped by rubric version, which is the debt
+   * 0078 recorded and did not fix. So the report opens on ALL TIME, which is
+   * what this screen is actually showing, and states that period in its own
+   * masthead. Choosing a month here would mean inventing a period the reader
+   * never selected; the report carries its own period control for that.
+   */
+  onViewReport?: (repId: string) => void;
 }): JSX.Element {
   const [versions, setVersions] = useState<RubricVersionRow[]>([]);
   const [versionId, setVersionId] = useState<string | null>(null);
@@ -113,11 +124,25 @@ export function RepPerformance({
         &larr; Dashboard
       </button>
 
-      <h1 className="font-display text-3xl mt-3 mb-1">Rep performance</h1>
-      <p className="text-[13px] text-ink-70 mb-5 max-w-xl">
-        From completed calibrations only. What a reviewer observed is not what
-        the organisation decided.
-      </p>
+      <div className="flex items-start justify-between gap-4 flex-wrap mt-3 mb-5">
+        <div>
+          <h1 className="font-display text-3xl mb-1">Rep performance</h1>
+          <p className="text-[13px] text-ink-70 max-w-xl">
+            From completed calibrations only. What a reviewer observed is not what
+            the organisation decided.
+          </p>
+        </div>
+        {onViewReport !== undefined && repId !== null && (
+          <button
+            type="button"
+            onClick={() => onViewReport(repId)}
+            title="Opens an all-time report for this representative. The reporting period can be changed inside the report."
+            className="text-[12.5px] rounded-md border border-rule px-3 py-1.5 bg-card hover:bg-ground-2 mt-1"
+          >
+            View Report
+          </button>
+        )}
+      </div>
 
       <div className="flex gap-3 flex-wrap mb-6">
         <label className="block">

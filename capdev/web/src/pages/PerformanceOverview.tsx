@@ -10,7 +10,7 @@ import {
   type PerformanceComparison,
   type StageFigure,
 } from "@/lib/dashboard";
-import { formatPercent, formatPointDelta, formatCountDelta } from "@/lib/performance";
+import { formatPercent } from "@/lib/performance";
 import {
   SectionHeading,
   StatCard,
@@ -18,10 +18,10 @@ import {
   PeriodSelect,
   DeltaLine,
 } from "@/components/dash";
+import { comparisonText, stageNoteText } from "@/lib/comparisonText";
 import {
   periodKey,
   periodLabel,
-  periodShortLabel,
   periodSentence,
   type Period,
 } from "@/lib/period";
@@ -65,12 +65,21 @@ export function PerformanceOverview({
   period,
   periods,
   onPeriodChange,
+  onViewReport,
 }: {
   /** The one selected period. Owned by the page, not by this section. */
   period: Period;
   /** Every period the control offers, newest first. */
   periods: Period[];
   onPeriodChange: (next: Period) => void;
+  /**
+   * Open the Executive report for the CURRENTLY selected period (0079).
+   *
+   * The report takes the period from here rather than choosing one of its own:
+   * "View Report" means "this, as a document", and a report that opened on a
+   * different month than the screen it was launched from would be a trap.
+   */
+  onViewReport?: (period: Period) => void;
 }): JSX.Element | null {
   const [comp, setComp] = useState<PerformanceComparison | null>(null);
   const [failed, setFailed] = useState(false);
@@ -115,63 +124,37 @@ export function PerformanceOverview({
    * its comparison; it is a different view, and a row of em dashes under every
    * figure would make it look broken.
    */
-  const vs = periodShortLabel(comp.previousPeriod ?? period, period);
+  // The WORDS live in lib/comparisonText.ts so the reports print the same
+  // sentences rather than a second set that drifts (0079). This decides only
+  // how they look here.
   const line = (c: Comparison): JSX.Element | undefined => {
-    switch (c.kind) {
-      case "none":
-        return undefined;
-      case "delta":
-        return (
-          <DeltaLine
-            text={`${
-              c.unit === "pts" ? formatPointDelta(c.value) : formatCountDelta(c.value)
-            } vs ${vs}`}
-          />
-        );
-      case "no-previous-month":
-        return <DeltaLine muted text="No previous-month comparison" />;
-      case "not-comparable-last-month":
-        return <DeltaLine muted text="No comparable data last month" />;
-      case "no-data-selected":
-        return <DeltaLine muted text={`No data in ${periodLabel(period)}`} />;
-      case "rubric-changed":
-        return <DeltaLine muted text="Rubric changed — not comparable" />;
-      case "unavailable":
-        return <DeltaLine muted text="Comparison unavailable" />;
-    }
+    const described = comparisonText(c, period, comp.previousPeriod);
+    if (described === null) return undefined;
+    return <DeltaLine text={described.text} muted={described.muted} />;
   };
 
   // Decided once for the period, not per stage: a rubric change invalidates
   // every stage comparison at once, and five copies of one sentence under five
   // meters is noise rather than emphasis.
   const stageGate = stageComparability(comp);
-  const stageNote = ((): string | null => {
-    switch (stageGate.kind) {
-      case "comparable":
-      case "none":
-        return null;
-      // Only ever said when BOTH months were calibrated and the versions
-      // actually differ. A month with no calibrations says nothing about which
-      // rubric was in force, and this sentence must not be used to explain one.
-      case "rubric-changed":
-        return "Rubric changed — not comparable";
-      case "no-previous-month":
-        return "No previous-month comparison";
-      case "no-calibrated-previous":
-        return "No comparable data last month";
-      case "no-calibrated-selected":
-        return `No calibrated stage data in ${periodLabel(period)}`;
-      case "no-data-selected":
-        return `No data in ${periodLabel(period)}`;
-      case "unavailable":
-        return "Comparison unavailable";
-    }
-  })();
+  // Same sentences as the reports print — see lib/comparisonText.ts. "Rubric
+  // changed — not comparable" is still said only when BOTH months were
+  // calibrated and the versions actually differ.
+  const stageNote = stageNoteText(stageGate, period);
 
   return (
     <>
       <section className="mt-8">
         <SectionHeading title="Team performance">
+          {onViewReport !== undefined && (
+            <button
+              type="button"
+              onClick={() => onViewReport(period)}
+              className="text-[12px] text-ink-45 hover:text-ink underline underline-offset-2"
+            >
+              View Report
+            </button>
+          )}
           <PeriodSelect
             value={periodKey(period)}
             options={options}

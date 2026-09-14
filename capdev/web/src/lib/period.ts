@@ -215,6 +215,29 @@ export function periodKey(period: Period): string {
     : `${period.year}-${String(period.month).padStart(2, "0")}`;
 }
 
+/**
+ * Strict parse: a key this module did not produce returns null (0079).
+ *
+ * `periodFromKey` below falls back to the current month, which is right for a
+ * <select> whose options this module generated — an impossible value there is a
+ * bug, and landing on this month is a harmless recovery. It is WRONG for a URL,
+ * where the key is typed by a human or pasted from somewhere stale: silently
+ * substituting a different month would hand someone a report headed "September"
+ * that they asked to be October, and nothing on the page would say so.
+ *
+ * Reports therefore parse strictly and say the period is invalid.
+ */
+export function tryPeriodFromKey(key: string): Period | null {
+  if (key === "all") return { kind: "all" };
+  const match = /^(\d{4})-(\d{2})$/.exec(key);
+  if (!match) return null;
+  const year = Number(match[1]);
+  const month = Number(match[2]);
+  if (!Number.isInteger(year) || year < 2000 || year > 2999) return null;
+  if (!Number.isInteger(month) || month < 1 || month > 12) return null;
+  return { kind: "month", year, month };
+}
+
 export function periodFromKey(key: string): Period {
   if (key === "all") return { kind: "all" };
   const [y, m] = key.split("-");

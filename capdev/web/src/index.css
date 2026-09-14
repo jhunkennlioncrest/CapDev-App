@@ -6,3 +6,328 @@
   body { @apply bg-ground text-ink font-sans antialiased; }
   h1, h2, h3 { @apply font-display font-semibold tracking-tight; }
 }
+
+/* ========================================================================== */
+/* CapDev reports (0079)                                                      */
+/* ========================================================================== */
+
+/*
+ * One accent token for the whole report.
+ *
+ * PROVISIONAL VALUE. The official Lioncrest mark had not been supplied when
+ * this was written, so the exact orange/red is not known. It is deliberately
+ * used in exactly two places — the rule under the masthead and the tick beside
+ * each section heading — so that setting it from the real artwork is a one-line
+ * change here and nothing else moves. It is never used for text, and never to
+ * say whether a number is good.
+ */
+:root {
+  --report-accent: #C2410C;
+}
+
+/* --- the sheet ----------------------------------------------------------- */
+
+.report-sheet {
+  /* 174mm of A4 content width at 96dpi, so the screen view is the print view
+     at the same measure rather than a different layout that happens to print. */
+  max-width: 658px;
+  padding-left: 24px;
+  padding-right: 24px;
+}
+
+.report-root .report-sheet + .report-sheet,
+.report-root > .report-sheet {
+  padding-bottom: 56px;
+}
+
+/* --- masthead ------------------------------------------------------------ */
+
+.report-masthead {
+  padding-top: 40px;
+  break-inside: avoid;
+  break-after: avoid;
+}
+
+/* Height fixed, width automatic: the supplied artwork keeps its proportions. */
+.report-logo {
+  height: 34px;
+  width: auto;
+  display: block;
+}
+
+.report-accent-rule {
+  height: 3px;
+  background: var(--report-accent);
+  margin-top: 18px;
+  width: 64px;
+}
+
+.report-scope {
+  margin-top: 20px;
+  padding-top: 14px;
+  border-top: 1px solid #DEE0D6;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px 28px;
+}
+
+@media (min-width: 640px) {
+  .report-scope { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+}
+
+.report-scope-entry dt {
+  font-size: 9.5px;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+  color: #6F7A73;
+}
+
+.report-scope-entry dd {
+  margin: 2px 0 0;
+  font-size: 12.5px;
+  color: #16211D;
+  line-height: 1.35;
+}
+
+/* --- sections ------------------------------------------------------------ */
+
+.report-section {
+  margin-top: 30px;
+  break-inside: avoid;
+}
+
+.report-section-head {
+  break-after: avoid;
+  margin-bottom: 10px;
+}
+
+.report-section-title {
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: #42504A;
+  padding-left: 10px;
+  border-left: 3px solid var(--report-accent);
+  line-height: 1.1;
+}
+
+/* --- figures ------------------------------------------------------------- */
+
+.report-figures {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 1px;
+  background: #DEE0D6;
+  border: 1px solid #DEE0D6;
+}
+
+@media (min-width: 640px) {
+  .report-figures { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .report-figures-2 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+
+/* The 1px gap over a coloured ground is what draws the rules between figures,
+   so a grid cell with no figure in it is not empty -- it prints as a filled
+   block. The last figure stretches across whatever the row has left, and the
+   panel ends square at every width. */
+.report-figures > .report-figure:last-child:nth-child(odd) {
+  grid-column: 1 / -1;
+}
+
+@media (min-width: 640px) {
+  .report-figures > .report-figure:last-child:nth-child(odd) {
+    grid-column: auto;
+  }
+  .report-figures:not(.report-figures-2) > .report-figure:last-child:nth-child(3n + 1),
+  .report-figures:not(.report-figures-2) > .report-figure:last-child:nth-child(3n + 2) {
+    grid-column: span 2;
+  }
+  .report-figures:not(.report-figures-2) > .report-figure:last-child:nth-child(3n + 1) {
+    grid-column: 1 / -1;
+  }
+  .report-figures-2 > .report-figure:last-child:nth-child(odd) {
+    grid-column: 1 / -1;
+  }
+}
+
+.report-figure {
+  background: #FFFFFF;
+  padding: 12px 14px;
+  break-inside: avoid;
+}
+
+.report-figure-label {
+  font-size: 10px;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+  color: #6F7A73;
+}
+
+.report-figure-value {
+  font-family: Fraunces, Georgia, serif;
+  font-size: 23px;
+  line-height: 1.05;
+  margin-top: 6px;
+  font-variant-numeric: tabular-nums;
+  color: #16211D;
+}
+
+.report-figure-movement {
+  font-size: 11.5px;
+  margin-top: 4px;
+  color: #42504A;
+  font-variant-numeric: tabular-nums;
+}
+
+.report-figure-detail {
+  font-size: 11px;
+  margin-top: 5px;
+  color: #6F7A73;
+  line-height: 1.35;
+}
+
+/* --- panel (Non-Negotiables: never a sixth stage) ------------------------ */
+
+.report-panel {
+  border: 1px solid #CBCEC2;
+  padding: 12px 14px;
+  break-inside: avoid;
+}
+
+.report-panel-title {
+  font-size: 10px;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+  color: #42504A;
+  margin-bottom: 8px;
+}
+
+/* --- tables -------------------------------------------------------------- */
+
+/* A wide table scrolls inside its own box. Without this the whole report
+   scrolls sideways on a phone, which moves the masthead and every heading off
+   screen to read one column of a table. */
+.report-table-scroll {
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+}
+
+.report-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+
+.report-table-caption {
+  caption-side: top;
+  text-align: left;
+  font-size: 11px;
+  color: #6F7A73;
+  padding-bottom: 6px;
+}
+
+.report-table th,
+.report-table td {
+  text-align: left;
+  padding: 6px 8px;
+  border-bottom: 1px solid #DEE0D6;
+  vertical-align: top;
+}
+
+.report-table th {
+  font-size: 9.5px;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+  color: #6F7A73;
+  font-weight: 600;
+  border-bottom: 1px solid #CBCEC2;
+  white-space: nowrap;
+}
+
+.report-table th.num,
+.report-table td.num {
+  text-align: right;
+}
+
+.report-table tr { break-inside: avoid; }
+
+.report-table .muted { color: #6F7A73; }
+
+/* --- footer -------------------------------------------------------------- */
+
+.report-footer {
+  margin-top: 34px;
+  padding-top: 12px;
+  border-top: 1px solid #DEE0D6;
+  font-size: 10.5px;
+  color: #6F7A73;
+  break-inside: avoid;
+}
+
+/* ========================================================================== */
+/* Print                                                                      */
+/* ========================================================================== */
+
+@page {
+  size: A4 portrait;
+  margin: 16mm 18mm;
+}
+
+@media print {
+  /* The page's own margins are @page's. A second set here would narrow the
+     measure the layout was designed against. */
+  .report-sheet {
+    max-width: none;
+    padding-left: 0;
+    padding-right: 0;
+    padding-bottom: 0;
+  }
+
+  /* body carries the application's ground colour, and a browser propagates
+     the body background to the page canvas -- which paints it over the unused
+     tail of the last sheet. Paper is white. */
+  html,
+  body,
+  .report-root,
+  .report-sheet {
+    background: #FFFFFF !important;
+  }
+
+  /* An overflow container establishes a formatting context that a paginator
+     will not break inside, so a long table would be clipped to a single page.
+     On paper there is nothing to scroll. */
+  .report-table-scroll {
+    overflow-x: visible;
+    overflow-y: visible;
+  }
+
+  .report-masthead { padding-top: 0; }
+
+  /* Paper is not a screen: type in points, sized to be read rather than to fit
+     a dashboard column. A report that shrinks itself onto one page is a report
+     nobody reads. */
+  .report-scope-entry dt { font-size: 7.5pt; }
+  .report-scope-entry dd { font-size: 9.5pt; }
+  .report-section-title { font-size: 8.5pt; }
+  .report-figure-label { font-size: 7.5pt; }
+  .report-figure-value { font-size: 16pt; }
+  .report-figure-movement { font-size: 9pt; }
+  .report-figure-detail { font-size: 8.5pt; }
+  .report-table { font-size: 9pt; }
+  .report-table th { font-size: 7.5pt; }
+  .report-footer { font-size: 8pt; }
+
+  /* Repeat the header row when a long table crosses a page boundary. */
+  .report-table thead { display: table-header-group; }
+  .report-table tfoot { display: table-footer-group; }
+
+  /* Keep the accent rules and panel borders: printers honour these only when
+     the browser is told to print background graphics, so both are drawn as
+     borders/blocks that survive either setting. */
+  .report-figures { gap: 0; background: transparent; }
+  .report-figure { border-right: 1px solid #DEE0D6; border-bottom: 1px solid #DEE0D6; }
+
+  a[href]::after { content: none !important; }
+}

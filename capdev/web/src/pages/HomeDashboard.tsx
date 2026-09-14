@@ -30,12 +30,15 @@ export function HomeDashboard({
   session,
   onNavigate,
   onOpenRepPerformance,
+  onViewReport,
 }: {
   session: Session;
   onNavigate: (w: Workspace) => void;
   onOpenCall: (callId: string) => void;
   /** Rep performance lives under the Dashboard, not as its own workspace. */
   onOpenRepPerformance?: (repId?: string) => void;
+  /** Open the Executive report for the selected period (0079). */
+  onViewReport?: (period: Period) => void;
 }): JSX.Element {
   const [counts, setCounts] = useState<Counts | null>(null);
   const canReview = session.permissions.includes("raw_qa.submit");
@@ -244,6 +247,7 @@ export function HomeDashboard({
             periods.length > 0 ? periods : dedupePeriods([allTimePeriod(), period])
           }
           onPeriodChange={setPeriod}
+          onViewReport={onViewReport}
         />
       )}
 

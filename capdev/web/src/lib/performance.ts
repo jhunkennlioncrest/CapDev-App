@@ -923,6 +923,23 @@ export async function calibratedTrends(
  * helper the Calibrated Score card uses. That is a deliberate change of meaning
  * for the monthly columns and is recorded as such.
  */
+/**
+ * One assessment of this representative inside the period (0079).
+ *
+ * Surfaced, not re-fetched: these are the very rows the four figures above were
+ * computed from. A report that listed a separate read could show a history that
+ * does not add up to the summary sitting above it.
+ */
+export interface RepPeriodAssessment {
+  id: string;
+  kind: string;
+  submitted_at: string | null;
+  yes_count: number | null;
+  applicable_count: number | null;
+  overall_score: number | null;
+  non_negotiables_all_pass: boolean | null;
+}
+
 export interface RepPeriodRow {
   representative_id: string;
   representative_name: string;
@@ -936,6 +953,8 @@ export interface RepPeriodRow {
   observedPct: number | null;
   /** Mean of the individual calibrated evaluation scores. */
   calibratedPct: number | null;
+  /** The assessments behind the four figures above, newest first (0079). */
+  assessments: RepPeriodAssessment[];
 }
 
 export interface RepPeriodResult {
@@ -950,9 +969,13 @@ const REP_PERIOD_PAGE = 1000;
 interface PeriodAssessment {
   id: string;
   kind: string;
+  /** 0079: carried so a report can list the assessments it counted. */
+  submitted_at: string | null;
   yes_count: number | null;
   applicable_count: number | null;
   overall_score: number | null;
+  /** 0079: carried so a per-representative Non-Negotiables rate needs no second read. */
+  non_negotiables_all_pass: boolean | null;
   call: { representative_id: string | null } | { representative_id: string | null }[] | null;
 }
 
@@ -979,8 +1002,12 @@ export async function repPerformanceForPeriod(period: Period): Promise<RepPeriod
   for (let from = 0; ; from += REP_PERIOD_PAGE) {
     let q = supabase
       .from("evaluation")
+      // Two columns wider than 0078 and not one predicate different: a report
+      // must list and sub-total the SAME rows these figures came from, and a
+      // second query for them is how a history stops matching its summary.
       .select(
-        "id, kind, yes_count, applicable_count, overall_score, call!inner(representative_id)",
+        "id, kind, submitted_at, yes_count, applicable_count, overall_score, " +
+          "non_negotiables_all_pass, call!inner(representative_id)",
       )
       .in("kind", ["raw_observation", "calibrated"])
       .eq("status", "submitted")
@@ -1024,6 +1051,18 @@ export async function repPerformanceForPeriod(period: Period): Promise<RepPeriod
       evaluations: bucket.cal.length,
       observedPct: assessmentScoreMean(bucket.raw),
       calibratedPct: assessmentScoreMean(bucket.cal),
+      assessments: [...bucket.raw, ...bucket.cal]
+        .map((a) => ({
+          id: a.id,
+          kind: a.kind,
+          submitted_at: a.submitted_at,
+          yes_count: a.yes_count,
+          applicable_count: a.applicable_count,
+          overall_score: a.overall_score,
+          non_negotiables_all_pass: a.non_negotiables_all_pass,
+        }))
+        // Newest first: a history is read from the most recent backwards.
+        .sort((x, y) => (y.submitted_at ?? "").localeCompare(x.submitted_at ?? "")),
     });
   }
   rows.sort((a, b) => a.representative_name.localeCompare(b.representative_name));

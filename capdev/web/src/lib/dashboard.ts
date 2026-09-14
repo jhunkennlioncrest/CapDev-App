@@ -518,17 +518,33 @@ export async function availablePeriods(): Promise<Period[]> {
  *
  * Rounded only for display, never here.
  */
-export function assessmentScoreMean(
-  rows: { overall_score?: number | null; yes_count: number | null; applicable_count: number | null }[],
-): number | null {
+export interface ScorableAssessment {
+  overall_score?: number | null;
+  yes_count: number | null;
+  applicable_count: number | null;
+}
+
+/**
+ * ONE assessment's score (0079).
+ *
+ * Extracted from assessmentScoreMean below without changing a rule, so that a
+ * report listing individual assessments and a card showing their mean are
+ * reading the same definition rather than two implementations of it. Null when
+ * the assessment measured nothing — never 0, which would drag a mean down with
+ * a call nobody scored.
+ */
+export function assessmentScore(row: ScorableAssessment): number | null {
+  if (row.overall_score !== null && row.overall_score !== undefined) return row.overall_score;
+  const applicable = row.applicable_count ?? 0;
+  if (applicable > 0) return (100 * (row.yes_count ?? 0)) / applicable;
+  return null;
+}
+
+export function assessmentScoreMean(rows: ScorableAssessment[]): number | null {
   const scores: number[] = [];
   for (const r of rows) {
-    if (r.overall_score !== null && r.overall_score !== undefined) {
-      scores.push(r.overall_score);
-      continue;
-    }
-    const app = r.applicable_count ?? 0;
-    if (app > 0) scores.push((100 * (r.yes_count ?? 0)) / app);
+    const score = assessmentScore(r);
+    if (score !== null) scores.push(score);
   }
   if (scores.length === 0) return null;
   return scores.reduce((a, v) => a + v, 0) / scores.length;
@@ -1050,4 +1066,47 @@ export async function sharedPerformanceWithComparison(
     previousPeriod,
     previousFailed: previous === null,
   };
+}
+
+/* -------------------------------------------------------------------------- */
+/* Narrowing the same measures to one set of evaluations (0079)                */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * Stage performance for an arbitrary set of calibrated evaluations.
+ *
+ * THE POINT IS THAT THERE IS NO SECOND FORMULA. This is a thin public door onto
+ * the same private stageTotals()/buildStages() the department section uses, so a
+ * representative's Opening percentage in a report and the department's Opening
+ * percentage on the Dashboard are the same arithmetic over different rows — not
+ * two implementations that agree today.
+ *
+ * The caller supplies the ids, which is what keeps the scoping honest: whoever
+ * decided which evaluations belong to this representative in this period also
+ * decided which ones the counts above them were built from.
+ */
+export async function stagePerformanceFor(evaluationIds: string[]): Promise<StageFigure[]> {
+  if (evaluationIds.length === 0) {
+    return STAGES.map((s) => ({ ...s, pct: null, n: 0, touched: 0, met: 0, missed: 0, na: 0 }));
+  }
+  return buildStages(await stageTotals(evaluationIds));
+}
+
+/**
+ * The Non-Negotiables pass rate over a given set of calibrated evaluations.
+ *
+ * Same rule as the department card, stated once: an evaluation with a null
+ * result is not a failure, it is an evaluation the check did not run on, so it
+ * leaves both sides of the ratio. Null when none of them carries a result —
+ * which is not 0%.
+ */
+export function nonNegotiablesFrom(
+  rows: { non_negotiables_all_pass?: boolean | null }[],
+): { pct: number; n: number; passed: number } | null {
+  const answered = rows.filter(
+    (r) => r.non_negotiables_all_pass !== null && r.non_negotiables_all_pass !== undefined,
+  );
+  if (answered.length === 0) return null;
+  const passed = answered.filter((r) => r.non_negotiables_all_pass === true).length;
+  return { pct: (100 * passed) / answered.length, n: answered.length, passed };
 }

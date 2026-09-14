@@ -15,6 +15,17 @@ import { CallDetail } from "@/pages/CallDetail";
 import { EnvironmentMismatch } from "@/components/EnvironmentBadge";
 import { verifyEnvironment, type EnvironmentCheck } from "@/lib/environment";
 import { QualityRecord } from "@/pages/QualityRecord";
+import { ReportView } from "@/pages/ReportView";
+import { ReportProblem } from "@/components/report";
+import {
+  clearReport,
+  onReportChange,
+  pushReport,
+  readReportFromUrl,
+  type ReportRequest,
+  type ReportRequestError,
+} from "@/lib/reportState";
+import { allTimePeriod, type Period } from "@/lib/period";
 
 /**
  * Five workspaces, filtered by role. A call or a completed evaluation opens
@@ -41,6 +52,29 @@ export default function App(): JSX.Element {
     open: false,
   });
   const [overlay, setOverlay] = useState<Overlay>(null);
+  /**
+   * A report is the one thing in CapDev worth putting in the address bar (0079).
+   *
+   * Read from the query string at mount and kept in step with Back and Forward.
+   * No router: navigation everywhere else in this file is state, and a report
+   * that needs a stable URL is not a reason to re-plumb five workspaces. The
+   * HASH is deliberately untouched — accountSetup owns it for invite and
+   * recovery links, and that race is load-bearing.
+   */
+  const [report, setReport] = useState<ReportRequest | ReportRequestError | null>(() =>
+    readReportFromUrl(),
+  );
+
+  useEffect(() => onReportChange(() => setReport(readReportFromUrl())), []);
+
+  const openReport = (next: ReportRequest): void => {
+    pushReport(next);
+    setReport(next);
+  };
+  const exitReport = (): void => {
+    clearReport();
+    setReport(null);
+  };
   // Which Raw QA tab to open on. Set when a raw submission finishes, so the
   // reviewer lands on their submitted work rather than the queue they just
   // emptied; reset whenever they navigate by hand (0074).
@@ -81,6 +115,30 @@ export default function App(): JSX.Element {
   if (state.status === "no-access") return <NoAccess email={state.email} />;
 
   const { session } = state;
+
+  // Above the workspace shell, deliberately: a report is a document, not a
+  // screen inside the application. Rendering it without AppShell is what makes
+  // the printed page free of navigation rather than hiding chrome in print CSS.
+  if (report !== null) {
+    if (report.kind === "invalid") {
+      return (
+        <ReportProblem
+          title="That report link could not be opened"
+          detail={report.reason}
+          onBack={exitReport}
+        />
+      );
+    }
+    return (
+      <ReportView
+        session={session}
+        request={report}
+        onExit={exitReport}
+        onRequestChange={setReport}
+      />
+    );
+  }
+
   const allowed = visibleWorkspaces(session.permissions).map((w) => w.key);
   const active = allowed.includes(workspace) ? workspace : "dashboard";
 
@@ -145,6 +203,9 @@ export default function App(): JSX.Element {
         repPerformance.open ? (
           <RepPerformance
             initialRepId={repPerformance.repId ?? null}
+            onViewReport={(repId) =>
+              openReport({ kind: "representative", repId, period: allTimePeriod() })
+            }
             onBack={() => setRepPerformance({ open: false })}
             onOpenRecord={(callId) => {
               setRepPerformance({ open: false });
@@ -157,6 +218,7 @@ export default function App(): JSX.Element {
             session={session}
             onNavigate={setWorkspace}
             onOpenRepPerformance={(repId) => setRepPerformance({ open: true, repId })}
+            onViewReport={(period: Period) => openReport({ kind: "executive", period })}
           />
         )
       )}
