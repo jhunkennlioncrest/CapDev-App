@@ -785,24 +785,28 @@ function embeddedRepId(row: PeriodAssessment): string | null {
 }
 
 export async function repPerformanceForPeriod(period: Period): Promise<RepPeriodResult> {
+  // Null for all time. ONE data model for both periods — per-evaluation rows,
+  // grouped by representative, means computed — with only the boundary
+  // changing. All time used to come from the aggregated views instead, which
+  // are scoped to a rubric version and would have dropped older history the
+  // moment a new rubric was activated.
   const range = periodRange(period);
-  if (!range) return { rows: [], withoutAssessments: 0 };
 
   // The embed is from a TABLE with a real foreign key (evaluation.call_id ->
   // call.id), not from a view — the relationship PostgREST resolves is provable
   // rather than inferred, which is why 0077 refused the view-embed form.
   const assessments: PeriodAssessment[] = [];
   for (let from = 0; ; from += REP_PERIOD_PAGE) {
-    const { data, error } = await supabase
+    let q = supabase
       .from("evaluation")
       .select(
         "id, kind, yes_count, applicable_count, overall_score, call!inner(representative_id)",
       )
       .in("kind", ["raw_observation", "calibrated"])
       .eq("status", "submitted")
-      .is("archived_at", null)
-      .gte("submitted_at", range.startIso)
-      .lt("submitted_at", range.endIso)
+      .is("archived_at", null);
+    if (range) q = q.gte("submitted_at", range.startIso).lt("submitted_at", range.endIso);
+    const { data, error } = await q
       .order("id", { ascending: true })
       .range(from, from + REP_PERIOD_PAGE - 1);
     // Thrown, never swallowed: a truncated or refused read must not be rendered

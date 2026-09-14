@@ -146,7 +146,7 @@ export function periodLabel(period: Period): string {
  * most readers will never check.
  */
 export function periodSentence(period: Period): string {
-  if (period.kind === "all") return "Assessments submitted at any time";
+  if (period.kind === "all") return "All time · every assessment ever submitted";
   const { start, end } = monthBounds(period.year, period.month);
   const days = Math.round((end.getTime() - start.getTime()) / 86_400_000);
   return `Assessments submitted 1–${days} ${MONTH_NAMES[period.month - 1]} ${

@@ -1,7 +1,5 @@
 import { useEffect, useState } from "react";
 import {
-  listRepPerformance,
-  listRepRawObservationPerformance,
   repPerformanceForPeriod,
   calibratedTrends,
   type RepTrend,
@@ -69,56 +67,23 @@ export function RepPerformanceSummary({
       const versions = await listVersions();
       const active = versions.find((v) => v.status === "active");
 
-      let lines: Line[] = [];
-      let without = 0;
-
-      if (period.kind === "all") {
-        // ALL TIME keeps the accepted 0077 path exactly: the aggregated views,
-        // scoped to the active rubric, and the broader roster including
-        // representatives not yet assessed.
-        if (!active) {
-          if (!cancelled) {
-            setRows([]);
-            setQuiet(0);
-          }
-          return;
-        }
-        const [all, raw] = await Promise.all([
-          listRepPerformance(active.id),
-          listRepRawObservationPerformance(active.id),
-        ]);
-        const rawById = new Map(
-          raw.filter((r) => r.observations > 0).map((r) => [r.representative_id, r.score]),
-        );
-        lines = all.map((r) => ({
-          id: r.representative_id,
-          name: r.representative_name,
-          status: r.status,
-          is_inactive: r.is_inactive,
-          observations: rawById.has(r.representative_id) ? 1 : 0,
-          evaluations: r.evaluations,
-          raw: rawById.get(r.representative_id) ?? null,
-          trainer: r.score,
-        }));
-      } else {
-        // A MONTH cannot come from those views: they are aggregated to
-        // (representative x rubric version) and carry no date to filter on. The
-        // monthly rollup reads the rows they are built from instead, and its
-        // scores are MEANS of the individual assessments — the same arithmetic
-        // as the Calibrated Score card, rather than the views' pooled ratio.
-        const result = await repPerformanceForPeriod(period);
-        without = result.withoutAssessments;
-        lines = result.rows.map((r) => ({
-          id: r.representative_id,
-          name: r.representative_name,
-          status: r.status,
-          is_inactive: r.is_inactive,
-          observations: r.observations,
-          evaluations: r.evaluations,
-          raw: r.observedPct,
-          trainer: r.calibratedPct,
-        }));
-      }
+      // ONE SOURCE FOR BOTH PERIODS: per-evaluation rows grouped by
+      // representative, with only the boundary changing. The aggregated views
+      // cannot serve a month (no date to filter on) and should not serve all
+      // time either — they are scoped to a rubric version, so older history
+      // would vanish from "all time" the day a new rubric was activated.
+      const result = await repPerformanceForPeriod(period);
+      const without = result.withoutAssessments;
+      const lines: Line[] = result.rows.map((r) => ({
+        id: r.representative_id,
+        name: r.representative_name,
+        status: r.status,
+        is_inactive: r.is_inactive,
+        observations: r.observations,
+        evaluations: r.evaluations,
+        raw: r.observedPct,
+        trainer: r.calibratedPct,
+      }));
 
       if (cancelled) return;
       setRows(lines);
@@ -128,9 +93,14 @@ export function RepPerformanceSummary({
       // Trend column answers "is this representative improving against their
       // own last calibration", which is a different question from "how did
       // September go" and must not be quietly re-pointed at the period.
-      const scored = lines.filter((r) => r.evaluations > 0);
-      if (active && scored.length > 0) {
-        const t = await calibratedTrends(scored.map((r) => r.id), active.id);
+      //
+      // Asked for EVERY visible representative, not only those calibrated
+      // inside the period. A representative who was observed in September and
+      // last calibrated in July still has a calibration history, and filtering
+      // by the period's evaluation count would have blanked their Trend for no
+      // reason.
+      if (active && lines.length > 0) {
+        const t = await calibratedTrends(lines.map((r) => r.id), active.id);
         if (!cancelled) setTrends(t);
       } else if (!cancelled) {
         setTrends({});
@@ -142,10 +112,8 @@ export function RepPerformanceSummary({
   }, [period]);
 
   if (rows === null) return null;
-  // All time with nothing in it stays hidden, as it has been since 0077. A
-  // month with nothing in it does NOT hide: an empty September is an answer,
-  // and a section that disappears reads as a section that failed.
-  if (rows.length === 0 && period.kind === "all") return null;
+  // An empty period does NOT hide the section. An empty September is an
+  // answer, and a section that disappears reads as a section that failed.
 
   // Inactive representatives stay in the data — the detail view and their
   // history remain reachable — but a former employee is not a current concern,
@@ -216,24 +184,22 @@ export function RepPerformanceSummary({
             // Current — the same measurement wearing two faces.
             const rawText = formatPercent(rawScore);
             const trainerText = formatPercent(r.trainer);
+            // Both columns are MEANS of the individual assessments in the
+            // selected period now, in every mode — the same arithmetic as the
+            // headline cards. The old all-time tooltip said "criteria met ÷
+            // criteria assessed", which described the aggregated view's pooled
+            // ratio and is no longer what either column shows.
+            const where = period.kind === "all" ? "all time" : periodLabel(period);
             const rawTitle = rawScore === null
-              ? period.kind === "all"
-                ? "No submitted Raw QA observation"
-                : `No submitted Raw QA observation in ${periodLabel(period)}`
-              : period.kind === "all"
-                ? "Raw QA: criteria met ÷ criteria assessed"
-                : `Mean of ${r.observations} submitted Raw QA observation${
-                    r.observations === 1 ? "" : "s"
-                  } in ${periodLabel(period)}`;
+              ? `No submitted Raw QA observation in ${where}`
+              : `Mean of ${r.observations} submitted Raw QA observation${
+                  r.observations === 1 ? "" : "s"
+                } · ${where}`;
             const trainerTitle = r.evaluations === 0
-              ? period.kind === "all"
-                ? "No completed calibration"
-                : `No calibration in ${periodLabel(period)}`
-              : period.kind === "all"
-                ? `${r.evaluations} evaluation${r.evaluations === 1 ? "" : "s"}`
-                : `Mean of ${r.evaluations} calibrated evaluation${
-                    r.evaluations === 1 ? "" : "s"
-                  } in ${periodLabel(period)}`;
+              ? `No calibrated evaluation in ${where}`
+              : `Mean of ${r.evaluations} calibrated evaluation${
+                  r.evaluations === 1 ? "" : "s"
+                } · ${where}`;
             const gapTitle = gap === null
               ? "Needs both a Raw QA observation and a calibration"
               : "Trainer minus Raw QA, in percentage points. Positive means the Trainer scored higher than Raw QA.";
@@ -369,13 +335,17 @@ export function RepPerformanceSummary({
       {/* Stated, never implied by an absence. A short table because nobody was
           assessed and a short table because a read failed look identical, and
           only one of them is an answer. */}
-      {period.kind !== "all" && (visible.length === 0 || quiet > 0) && (
+      {(visible.length === 0 || quiet > 0) && (
         <p className="text-[12.5px] text-ink-45 mt-2">
-          {visible.length === 0
-            ? `No representatives had assessments in ${periodLabel(period)}.`
-            : `${quiet} representative${quiet === 1 ? "" : "s"} had no assessments in ${periodLabel(
-                period,
-              )}.`}
+          {period.kind === "all"
+            ? visible.length === 0
+              ? "No representative has been assessed yet."
+              : `${quiet} representative${quiet === 1 ? " has" : "s have"} not been assessed yet.`
+            : visible.length === 0
+              ? `No representatives had assessments in ${periodLabel(period)}.`
+              : `${quiet} representative${quiet === 1 ? "" : "s"} had no assessments in ${periodLabel(
+                  period,
+                )}.`}
         </p>
       )}
     </section>

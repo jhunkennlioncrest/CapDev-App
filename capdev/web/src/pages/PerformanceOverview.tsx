@@ -169,15 +169,18 @@ export function PerformanceOverview({
           />
           {/* Not tinted red. 1.9% is a low disagreement rate — a good result —
               and colouring it as an alarm would assert the opposite. */}
+          {/* Three states, never collapsed: restricted, nothing compared, and a
+              measured zero. "0%" with no denominator claimed perfect alignment
+              for a month in which nobody calibrated anything. */}
           <StatCard
             icon="compare"
             label="Disagreements"
-            value={dis === null ? "—" : pct(dis.pct)}
+            value={dis === null || dis.pct === null ? "—" : pct(dis.pct)}
             detail={
               dis === null
-                ? "restricted"
+                ? "Restricted for your role"
                 : dis.comparisons === 0
-                  ? "no comparisons yet"
+                  ? "No comparisons yet"
                   : `${dis.misaligned} of ${dis.comparisons} comparisons`
             }
           />

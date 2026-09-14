@@ -153,7 +153,19 @@ export interface SharedPerformance {
    * indistinguishable under RLS, and rendering an unreadable figure as 0%
    * would claim perfect alignment where the truth is "you cannot see this".
    */
-  disagreements: { pct: number; comparisons: number; misaligned: number } | null;
+  /**
+   * THREE STATES, and they must not collapse into each other.
+   *
+   *   null                       — you cannot see this. Not zero.
+   *   { pct: null, comparisons: 0 } — nothing was compared. A percentage with
+   *                                no denominator is undefined, not 0%.
+   *   { pct: 0, comparisons: 60 }  — a real, measured zero: sixty comparisons
+   *                                and not one disagreement.
+   *
+   * The middle case used to render as "0%", which claimed perfect alignment
+   * for a month in which nobody calibrated anything.
+   */
+  disagreements: { pct: number | null; comparisons: number; misaligned: number } | null;
   stages: StageFigure[];
   /**
    * Stage performance split by rubric version.
@@ -546,12 +558,17 @@ export async function sharedPerformance(period: Period): Promise<SharedPerforman
     rubricLabels: [],
   };
 
-  // ALL TIME KEEPS THE ACCEPTED 0077 SCOPING: the active rubric, exactly as
-  // released. A month does not — it is scoped by the period alone, and each
-  // assessment is reported under the version stored on it. That difference is
-  // deliberate and is the one place the two modes disagree; it is stated in the
-  // 0078-A record rather than buried here.
-  if (!range && !active) return empty;
+  // ONE MENTAL MODEL, TWO PERIODS.
+  //
+  //   a month  — every assessment submitted in that Philippine calendar month
+  //   all time — every assessment ever submitted
+  //
+  // Neither asks what rubric is active today. 0078-A first shipped all time
+  // with the accepted 0077 active-rubric filter, which would have quietly
+  // dropped v1.0 history from "all time" the moment v2.0 was activated — the
+  // same fault the monthly path was built to avoid, wearing a different label.
+  // Each assessment is reported under the version stored on it, in both modes,
+  // and the versions present are disclosed on screen.
 
   const scopedRaw = () => {
     let q = supabase
@@ -561,7 +578,6 @@ export async function sharedPerformance(period: Period): Promise<SharedPerforman
       .eq("status", "submitted")
       .is("archived_at", null);
     if (range) q = q.gte("submitted_at", range.startIso).lt("submitted_at", range.endIso);
-    else if (active) q = q.eq("rubric_version_id", active.id);
     return q;
   };
   const scopedCal = () => {
@@ -572,7 +588,6 @@ export async function sharedPerformance(period: Period): Promise<SharedPerforman
       .eq("status", "submitted")
       .is("archived_at", null);
     if (range) q = q.gte("submitted_at", range.startIso).lt("submitted_at", range.endIso);
-    else if (active) q = q.eq("rubric_version_id", active.id);
     return q;
   };
   const scopedNn = () => {
@@ -584,7 +599,6 @@ export async function sharedPerformance(period: Period): Promise<SharedPerforman
       .is("archived_at", null)
       .not("non_negotiables_all_pass", "is", null);
     if (range) q = q.gte("submitted_at", range.startIso).lt("submitted_at", range.endIso);
-    else if (active) q = q.eq("rubric_version_id", active.id);
     return q;
   };
 
@@ -675,37 +689,23 @@ export async function sharedPerformance(period: Period): Promise<SharedPerforman
    * other figure is fine.
    */
   let disagreements: SharedPerformance["disagreements"] = null;
-  if (range) {
-    if (evaluatedCount === 0) {
-      disagreements = { pct: 0, comparisons: 0, misaligned: 0 };
-    } else {
-      try {
-        const t = await disagreementTotals(cal.map((r) => r.id));
-        disagreements =
-          t.comparisons > 0
-            ? { pct: (100 * t.misaligned) / t.comparisons, comparisons: t.comparisons, misaligned: t.misaligned }
-            : { pct: 0, comparisons: 0, misaligned: 0 };
-      } catch {
-        disagreements = null;
-      }
+  if (evaluatedCount === 0) {
+    // Nothing was calibrated, so nothing was compared. Not restricted, and not
+    // 0% — there is no denominator.
+    disagreements = { pct: null, comparisons: 0, misaligned: 0 };
+  } else {
+    try {
+      const t = await disagreementTotals(cal.map((r) => r.id));
+      disagreements = {
+        pct: t.comparisons > 0 ? (100 * t.misaligned) / t.comparisons : null,
+        comparisons: t.comparisons,
+        misaligned: t.misaligned,
+      };
+    } catch {
+      // Degrades this one figure rather than the section: Disagreements can be
+      // unreadable while every other number is fine.
+      disagreements = null;
     }
-  } else if (active) {
-    const alignment = await supabase
-      .from("v_calibration_alignment_summary")
-      .select("comparisons, misaligned")
-      .eq("rubric_version_id", active.id)
-      .maybeSingle<{ comparisons: number; misaligned: number }>();
-    const alignFailed = alignment.error !== null && alignment.error !== undefined;
-    const align = alignFailed ? null : alignment.data;
-    disagreements = align
-      ? {
-          pct: (100 * align.misaligned) / align.comparisons,
-          comparisons: align.comparisons,
-          misaligned: align.misaligned,
-        }
-      : !alignFailed && evaluatedCount === 0
-        ? { pct: 0, comparisons: 0, misaligned: 0 }
-        : null;
   }
 
   return {
@@ -722,8 +722,8 @@ export async function sharedPerformance(period: Period): Promise<SharedPerforman
       nn.length > 0
         ? { pct: (100 * nnPassed) / nn.length, n: nn.length, passed: nnPassed }
         : null,
-    // All time states the active rubric it is scoped to; a month states what it
-    // actually contains.
-    rubricLabels: range ? rubricLabels : active ? [active.version_label] : [],
+    // What the period actually contains, in both modes — never the active
+    // rubric standing in for the data.
+    rubricLabels,
   };
 }
