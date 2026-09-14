@@ -5,6 +5,7 @@ import {
   calibratedTrends,
   type RepTrend,
   formatGap,
+  formatPercent,
   scoreGap,
   type RepPerformance,
 } from "@/lib/performance";
@@ -131,8 +132,12 @@ export function RepPerformanceSummary({
               : null;
             const gap = scoreGap(rawScore, r.score);
 
-            const rawText = rawScore === null ? "—" : `${rawScore}%`;
-            const trainerText = r.score === null ? "—" : `${r.score}%`;
+            // One formatter for all four figures. They used to be printed
+            // straight from their sources, which is why a single calibrated
+            // evaluation could read 28.6% in the Trainer column and 28.57% in
+            // Current — the same measurement wearing two faces.
+            const rawText = formatPercent(rawScore);
+            const trainerText = formatPercent(r.score);
             const rawTitle = rawScore === null
               ? "No submitted Raw QA observation"
               : "Raw QA: criteria met ÷ criteria assessed";
@@ -141,9 +146,9 @@ export function RepPerformanceSummary({
               : `${r.evaluations} evaluation${r.evaluations === 1 ? "" : "s"}`;
             const gapTitle = gap === null
               ? "Needs both a Raw QA observation and a calibration"
-              : "Raw QA minus Trainer, in percentage points";
-            const prevText = t.previous === null ? "—" : `${t.previous}%`;
-            const currText = t.current === null ? "—" : `${t.current}%`;
+              : "Trainer minus Raw QA, in percentage points. Positive means the Trainer scored higher than Raw QA.";
+            const prevText = formatPercent(t.previous);
+            const currText = formatPercent(t.current);
             const trendTitle = t.direction === "none"
               ? "No submitted calibrated evaluation under the active rubric yet"
               : t.direction === "baseline"

@@ -556,7 +556,34 @@ export async function listRepRawObservationPerformance(
  */
 export function scoreGap(raw: number | null, trainer: number | null): number | null {
   if (raw === null || trainer === null) return null;
-  return raw - trainer;
+  // TRAINER MINUS RAW QA. The direction is not arbitrary: the calibrated
+  // assessment is the organisation's decision, so it is the thing the gap is
+  // measured FROM. A positive gap means the Trainer scored the representative
+  // HIGHER than Raw QA did; negative means lower.
+  //
+  // This used to be raw - trainer, which read backwards to everyone outside
+  // the code: a rep the Trainer marked up showed a negative number. The
+  // argument order still mirrors the columns on screen (Raw QA, then Trainer);
+  // only the subtraction changed.
+  return trainer - raw;
+}
+
+/**
+ * One decimal at most, and never a manufactured one: 62 stays "62%", 100 stays
+ * "100%", 28.57 becomes "28.6%".
+ *
+ * Every performance percentage on the Dashboard goes through here. It exists
+ * because four of them did not: the roster printed Raw QA, Trainer, Previous
+ * and Current straight from their sources, so a single calibrated evaluation
+ * showed as "28.6%" in one column (the view rounds to one decimal) and
+ * "28.57%" in the next (the stored score keeps two). Same number, two
+ * appearances, and a reader has to wonder which one is the measurement.
+ *
+ * Rounds for DISPLAY only. Nothing upstream rounds on the way in.
+ */
+export function formatPercent(v: number | null): string {
+  if (v === null || !Number.isFinite(v)) return "—";
+  return `${Math.round(v * 10) / 10}%`;
 }
 
 /** "+6 pts", "-4 pts", "0 pts", or an em dash. The sign is never implicit. */

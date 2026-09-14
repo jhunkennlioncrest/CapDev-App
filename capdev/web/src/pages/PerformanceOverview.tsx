@@ -4,6 +4,7 @@ import {
   LOW_SAMPLE,
   type SharedPerformance,
 } from "@/lib/dashboard";
+import { formatPercent } from "@/lib/performance";
 import { SectionHeading, StatCard, Meter } from "@/components/dash";
 
 /**
@@ -143,7 +144,7 @@ export function PerformanceOverview(): JSX.Element | null {
             criteria. */}
         <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
           {data.stages.map((s) => (
-            <Meter key={s.key} label={s.label} pct={s.pct} detail={sample(s.n)} />
+            <Meter key={s.key} label={s.label} pct={s.pct} detail={stageDetail(s)} />
           ))}
           <Meter
             distinct
@@ -161,21 +162,53 @@ export function PerformanceOverview(): JSX.Element | null {
   );
 }
 
-/** One decimal, and an em dash when there is genuinely nothing to show. */
-function pct(v: number | null): string {
-  return v === null ? "—" : `${Math.round(v * 10) / 10}%`;
+/**
+ * What the stage percentage is made of, in the two units it is actually made
+ * of.
+ *
+ * "n=2 · Limited data" was true and nearly useless: it named a sample size
+ * without saying what was sampled, and a reader could not tell whether a stage
+ * at 0% had been failed twice or simply never applied. The first line is
+ * CRITERION outcomes, the second is EVALUATION context, and they are kept on
+ * separate lines because they are separate units and a single number would be
+ * read as whichever the reader expected.
+ */
+function stageDetail(s: {
+  pct: number | null;
+  n: number;
+  touched: number;
+  met: number;
+  missed: number;
+  na: number;
+}): JSX.Element {
+  // Nothing recorded at all — not the same as nothing applicable.
+  if (s.touched === 0) return <>No data yet</>;
+
+  const counts = `${s.met} met · ${s.missed} missed · ${s.na} N/A`;
+
+  // Criteria were recorded and every one was N/A. The percentage is an em dash
+  // above; saying "0%" here, or leaving it at "no data", would both be wrong.
+  if (s.pct === null) {
+    return (
+      <>
+        {counts}
+        <br />
+        No applicable criteria
+      </>
+    );
+  }
+
+  const evals = `${s.n} ${s.n === 1 ? "evaluation" : "evaluations"}`;
+  return (
+    <>
+      {counts}
+      <br />
+      {s.n < LOW_SAMPLE ? `Limited data · ${evals}` : `From ${evals}`}
+    </>
+  );
 }
 
-/**
- * A percentage without its sample size invites a reader to trust three
- * observations as much as three hundred, so the size is never optional.
- *
- * `n` counts EVALUATIONS that contributed an applicable criterion to the
- * stage, not criterion rows — the reader reads "n=" as calls looked at, and a
- * criterion count would inflate it several-fold and retire the "Limited data"
- * caution exactly where it is most needed.
- */
-function sample(n: number): string {
-  if (n === 0) return "No data yet";
-  return n < LOW_SAMPLE ? `n=${n} · Limited data` : `n=${n}`;
-}
+/** One decimal, and an em dash when there is genuinely nothing to show. */
+const pct = formatPercent;
+
+

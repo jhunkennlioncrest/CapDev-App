@@ -1,6 +1,10 @@
 import { useCallback, useEffect, useState } from "react";
 import { SectionHeading } from "@/components/dash";
-import { calibrationHotspots, type CalibrationHotspot } from "@/lib/performance";
+import {
+  calibrationHotspots,
+  formatPercent,
+  type CalibrationHotspot,
+} from "@/lib/performance";
 import type { Session } from "@/lib/types";
 
 /**
@@ -70,20 +74,38 @@ export function CalibrationAccuracySection({
       ) : (
         <div className="bg-card border border-rule-soft rounded-lg px-5 py-4">
           <p className="text-[12.5px] text-ink-70 mb-3">Most disagreed criteria</p>
+          {/* Each row stacks below sm. The count used to read "2/4 · 50%",
+              which fit beside a wrapping label on a phone; the sentence that
+              replaced it does not — and a shrink-0 span beside a min-w-0 one
+              does not overflow, it OVERLAPS, which no overflow check catches.
+              So the row is a column until there is width for two. */}
           <ul className="divide-y divide-rule-soft">
             {hotspots.map((h) => (
-              <li key={h.criterion_code} className="flex items-baseline gap-3 py-2 first:pt-0 last:pb-0">
-                <span className="font-mono text-[11px] text-ink-45 w-12 shrink-0">
-                  {h.criterion_code}
+              <li
+                key={h.criterion_code}
+                className="py-2 first:pt-0 last:pb-0 flex flex-col gap-1 sm:flex-row sm:items-baseline sm:gap-3"
+              >
+                <span className="flex items-baseline gap-3 min-w-0 sm:flex-1">
+                  <span className="font-mono text-[11px] text-ink-45 w-12 shrink-0">
+                    {h.criterion_code}
+                  </span>
+                  {/* Wraps rather than truncates. A criterion cut to
+                      "Appropriate Sales H..." is unusable on a phone, and this
+                      list exists to name the criterion. */}
+                  <span className="text-[13.5px] flex-1 min-w-0 text-ink leading-snug">
+                    {h.criterion_label}
+                  </span>
                 </span>
-                {/* Wraps rather than truncates. A criterion cut to "Appropriate
-                    Sales H..." is unusable on a phone, and this list exists to
-                    name the criterion. */}
-                <span className="text-[13.5px] flex-1 min-w-0 text-ink leading-snug">
-                  {h.criterion_label}
-                </span>
-                <span className="font-mono text-[12px] tabular-nums text-ink-45 shrink-0">
-                  {h.disagreements}/{h.compared} &middot; {h.disagreement_rate}%
+                {/* "2/4 · 50%" was compressed past the point of being read.
+                    Same numbers, same source, same order — the sentence just
+                    says which is which. `compared` is the number of
+                    calibrations in which this criterion was compared, so
+                    "calibrations" is the honest noun for it. Indented on
+                    mobile to sit under the label, not under the code. */}
+                <span className="text-[12px] tabular-nums text-ink-45 pl-[3.75rem] sm:pl-0 sm:shrink-0 sm:text-right">
+                  Disagreed in {h.disagreements} of {h.compared}{" "}
+                  {h.compared === 1 ? "calibration" : "calibrations"} &middot;{" "}
+                  {formatPercent(h.disagreement_rate)}
                 </span>
               </li>
             ))}

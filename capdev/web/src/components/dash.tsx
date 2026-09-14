@@ -1,3 +1,6 @@
+import type React from "react";
+import { formatPercent } from "@/lib/performance";
+
 /**
  * Dashboard presentation primitives (0077 visual pass).
  *
@@ -157,7 +160,10 @@ export function Meter({
 }: {
   label: string;
   pct: number | null;
-  detail: string;
+  /** A node, not a string: a stage says both its criterion outcomes and how
+   *  many evaluations produced them, and those are two different units that
+   *  must not be crushed onto one line. */
+  detail: React.ReactNode;
   distinct?: boolean;
 }): JSX.Element {
   const shown = pct === null ? null : Math.max(0, Math.min(100, pct));
@@ -186,7 +192,7 @@ export function Meter({
           distinct ? "text-moss-deep" : "text-ink"
         }`}
       >
-        {pct === null ? "—" : `${Math.round(pct * 10) / 10}%`}
+        {formatPercent(pct)}
       </p>
       {shown !== null && (
         <div
@@ -198,7 +204,7 @@ export function Meter({
           <div className="h-full rounded-full bg-moss" style={{ width: `${shown}%` }} />
         </div>
       )}
-      <p className="text-[11px] text-ink-45 mt-2 leading-snug">{detail}</p>
+      <div className="text-[11px] text-ink-45 mt-2 leading-snug">{detail}</div>
     </div>
   );
 }

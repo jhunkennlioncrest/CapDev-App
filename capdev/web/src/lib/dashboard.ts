@@ -110,11 +110,26 @@ export interface StageFigure {
   pct: number | null;
   /**
    * Contributing EVALUATIONS — those with at least one applicable criterion in
-   * this stage — not criterion rows. The label beside it reads "n=", and a
-   * reader takes that to mean calls looked at; a criterion count would inflate
-   * it several-fold and make "Limited data" disappear exactly when it matters.
+   * this stage. NOT criterion rows: the two units are a factor of several
+   * apart, and confusing them would retire the limited-data caution exactly
+   * where it is most needed.
    */
   n: number;
+  /** Criteria answered Yes, pooled. A CRITERION count, not an evaluation one. */
+  met: number;
+  /** Criteria answered No, pooled. */
+  missed: number;
+  /**
+   * Criteria marked N/A, pooled. Carried so the card can distinguish three
+   * states a single percentage cannot: nothing recorded at all, criteria
+   * recorded but none applicable, and a real measured ratio.
+   */
+  na: number;
+  /**
+   * Evaluations that touched this stage at all, applicable or not. Equals `n`
+   * unless some evaluation answered every criterion in the stage N/A.
+   */
+  touched: number;
 }
 
 export interface SharedPerformance {
@@ -198,9 +213,13 @@ const STAGE_ID_CHUNK = 100;
 
 interface StageTotals {
   yes: number;
+  no: number;
+  na: number;
   applicable: number;
   /** Distinct evaluations that contributed at least one applicable criterion. */
   evaluations: Set<string>;
+  /** Distinct evaluations with a row for this stage at all, N/A included. */
+  touched: Set<string>;
 }
 
 async function stageTotals(evaluationIds: string[]): Promise<Map<string, StageTotals>> {
@@ -216,7 +235,7 @@ async function stageTotals(evaluationIds: string[]): Promise<Map<string, StageTo
     for (let from = 0; ; from += STAGE_PAGE) {
       const { data, error } = await supabase
         .from("v_stage_checklist_status")
-        .select("evaluation_id, stage, yes_items, no_items")
+        .select("evaluation_id, stage, yes_items, no_items, na_items")
         .in("evaluation_id", chunk)
         .order("evaluation_id", { ascending: true })
         .order("stage", { ascending: true })
@@ -230,16 +249,32 @@ async function stageTotals(evaluationIds: string[]): Promise<Map<string, StageTo
         stage: string;
         yes_items: number | null;
         no_items: number | null;
+        na_items: number | null;
       }[];
 
       for (const r of rows) {
         const yes = r.yes_items ?? 0;
-        const applicable = yes + (r.no_items ?? 0);
-        if (applicable === 0) continue;
-        const t = out.get(r.stage) ?? { yes: 0, applicable: 0, evaluations: new Set<string>() };
+        const no = r.no_items ?? 0;
+        const na = r.na_items ?? 0;
+        const applicable = yes + no;
+        const t = out.get(r.stage) ?? {
+          yes: 0,
+          no: 0,
+          na: 0,
+          applicable: 0,
+          evaluations: new Set<string>(),
+          touched: new Set<string>(),
+        };
         t.yes += yes;
+        t.no += no;
+        t.na += na;
         t.applicable += applicable;
-        t.evaluations.add(r.evaluation_id);
+        t.touched.add(r.evaluation_id);
+        // Only evaluations with something APPLICABLE count towards the sample.
+        // An evaluation that marked every criterion in the stage N/A was looked
+        // at, but it measured nothing, and counting it would make a stage look
+        // better sampled than it is.
+        if (applicable > 0) t.evaluations.add(r.evaluation_id);
         out.set(r.stage, t);
       }
 
@@ -273,7 +308,7 @@ export async function sharedPerformance(): Promise<SharedPerformance> {
     observedPct: null,
     evaluatedPct: null,
     disagreements: null,
-    stages: STAGES.map((s) => ({ ...s, pct: null, n: 0 })),
+    stages: STAGES.map((s) => ({ ...s, pct: null, n: 0, touched: 0, met: 0, missed: 0, na: 0 })),
     nonNegotiables: null,
   };
   if (!rubric) return empty;
@@ -295,7 +330,7 @@ export async function sharedPerformance(): Promise<SharedPerformance> {
       .eq("rubric_version_id", versionId),
     supabase
       .from("evaluation")
-      .select("id, yes_count, applicable_count")
+      .select("id, yes_count, applicable_count, overall_score")
       .eq("kind", "calibrated")
       .eq("status", "submitted")
       .is("archived_at", null)
@@ -341,7 +376,33 @@ export async function sharedPerformance(): Promise<SharedPerformance> {
     id: string;
     yes_count: number;
     applicable_count: number;
+    overall_score: number | null;
   }[];
+
+  /**
+   * CALIBRATED SCORE — the mean of the evaluation scores, not a pooled ratio.
+   *
+   * overall_score is written by recompute_evaluation() as
+   * round(yes / (yes + no) * 100, 2): criteria met over criteria assessed, N/A
+   * already excluded. It is the authoritative per-evaluation figure, so it is
+   * read rather than recomputed from criterion rows here.
+   *
+   * Averaging those gives every completed calibration equal weight, which is
+   * what the business means by a department score: four calls, four opinions,
+   * one average. The previous pooled form — sum(yes) / sum(applicable) — let a
+   * fifteen-criterion call outvote a four-criterion one, and a reader comparing
+   * this figure against a single representative's score could not reconcile
+   * them.
+   *
+   * The pooled measure is NOT deleted from the codebase; `pooled()` still
+   * serves Observed Score. If it is ever wanted for calibrations too, it wants
+   * its own name and its own card — "Criteria Met Rate" — and not this one.
+   */
+  const meanOfScores = (rows: { overall_score: number | null }[]): number | null => {
+    const scored = rows.map((r) => r.overall_score).filter((v): v is number => v !== null);
+    if (scored.length === 0) return null;
+    return scored.reduce((a, v) => a + v, 0) / scored.length;
+  };
 
   // Sequential, and deliberately so: the stage read is scoped by the exact
   // evaluation ids the calibrated read just returned. Embedding
@@ -355,6 +416,12 @@ export async function sharedPerformance(): Promise<SharedPerformance> {
     return {
       ...s,
       n: t ? t.evaluations.size : 0,
+      touched: t ? t.touched.size : 0,
+      met: t ? t.yes : 0,
+      missed: t ? t.no : 0,
+      na: t ? t.na : 0,
+      // Null, never 0%, when nothing was applicable. A stage every evaluation
+      // marked N/A was not failed; it did not apply.
       pct: t && t.applicable > 0 ? (100 * t.yes) / t.applicable : null,
     };
   });
@@ -377,8 +444,10 @@ export async function sharedPerformance(): Promise<SharedPerformance> {
     rubricLabel: rubric.version_label,
     observedCount: raw.length,
     evaluatedCount,
+    // Observed Score stays POOLED for now. Changing it to a mean as well is a
+    // business decision, not a tidy-up, and it was deliberately left to John.
     observedPct: pooled(raw),
-    evaluatedPct: pooled(cal),
+    evaluatedPct: meanOfScores(cal),
     // Distinguishing "nothing to compare yet" from "you may not see this":
     // with no calibrations at all there is genuinely nothing, and that is a
     // zero-data state rather than a restricted one. A missing row while
