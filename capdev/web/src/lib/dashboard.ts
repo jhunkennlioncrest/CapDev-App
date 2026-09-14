@@ -1,4 +1,11 @@
 import { supabase } from "@/lib/supabase";
+import {
+  currentMonthPeriod,
+  monthsInSpan,
+  periodKey,
+  periodRange,
+  type Period,
+} from "@/lib/period";
 
 /**
  * Dashboard figures, scoped to the role that is looking.
@@ -12,69 +19,69 @@ import { supabase } from "@/lib/supabase";
  * which is why the old org-wide "average score" was removed from the reviewer.
  */
 
-/** Monday of the current week, local time. The labelled period for both roles. */
-export function startOfWeek(): Date {
-  const d = new Date();
-  const day = (d.getDay() + 6) % 7; // Monday = 0
-  d.setDate(d.getDate() - day);
-  d.setHours(0, 0, 0, 0);
-  return d;
-}
-
-export interface ReviewerFigures {
-  /** Observations this reviewer submitted since Monday. */
-  completedThisWeek: number;
-}
+/* -------------------------------------------------------------------------- */
+/* Personal activity, in the selected period (0078-A)                          */
+/* -------------------------------------------------------------------------- */
 
 /**
- * The reviewer's own work — not the organisation's.
+ * Both personal counts used to be "since Monday", measured from the BROWSER's
+ * local midnight. 0078 changes both halves of that.
  *
- * The previous dashboard counted org-wide calibrations here, so a reviewer who
- * had submitted three observations could still see zero.
+ * THE PERIOD IS THE SELECTED ONE, so the whole page speaks one period language.
+ * "Calibrations this week" sitting above a September department score invited
+ * the two numbers to be read together, and they could not be — one covered
+ * seven days, the other thirty.
  *
- * One count, and nothing else. This used to also assemble the six most recent
- * observations, their representatives' canonical names, and whether a trainer
- * had calibrated each one since — three further round trips feeding a "Recent
- * observations" list the Dashboard no longer shows. That history is still in
- * the Library and on Rep Performance; paying for it here bought a list nobody
- * decided anything from.
+ * THE BOUNDARY IS THE BUSINESS ZONE'S, not the reader's (lib/period.ts). A
+ * trainer in Manila and a manager in London must count the same calibrations
+ * into the same month.
+ *
+ * Archived assessments are now excluded, which "since Monday" did not do. The
+ * department sets R and C have always excluded them; a personal count that
+ * included them could exceed the department count it sits above.
  */
-export async function reviewerFigures(personId: string): Promise<ReviewerFigures> {
-  const { count } = await supabase
+export interface ActivityFigures {
+  /** Assessments this person submitted inside the selected period. */
+  submitted: number;
+}
+
+async function personalCount(
+  personId: string,
+  kind: "raw_observation" | "calibrated",
+  period: Period,
+): Promise<ActivityFigures> {
+  let q = supabase
     .from("evaluation")
     .select("id", { count: "exact", head: true })
     .eq("evaluator_id", personId)
-    .eq("kind", "raw_observation")
+    .eq("kind", kind)
     .eq("status", "submitted")
-    .gte("submitted_at", startOfWeek().toISOString());
+    .is("archived_at", null);
 
-  return { completedThisWeek: count ?? 0 };
+  const range = periodRange(period);
+  if (range) {
+    // Half-open. `lt`, never `lte` — see lib/period.ts.
+    q = q.gte("submitted_at", range.startIso).lt("submitted_at", range.endIso);
+  }
+
+  const { count } = await q;
+  return { submitted: count ?? 0 };
 }
 
-export interface TrainerFigures {
-  /** Calibrations this trainer submitted since Monday. */
-  completedThisWeek: number;
+/** The reviewer's own submitted observations in the selected period. */
+export async function reviewerFigures(
+  personId: string,
+  period: Period,
+): Promise<ActivityFigures> {
+  return personalCount(personId, "raw_observation", period);
 }
 
-/**
- * The trainer's own completed calibrations, as one number.
- *
- * Trimmed alongside reviewerFigures: the six most recent calibrations, their
- * canonical representative names and their per-evaluation disagreement counts
- * were read from v_quality_repository, call and v_calibration_comparison for a
- * "Recent calibrations" list that is gone. Department-level alignment is in the
- * shared Performance section; a trainer's own history is in the Library.
- */
-export async function trainerFigures(personId: string): Promise<TrainerFigures> {
-  const { count } = await supabase
-    .from("evaluation")
-    .select("id", { count: "exact", head: true })
-    .eq("evaluator_id", personId)
-    .eq("kind", "calibrated")
-    .eq("status", "submitted")
-    .gte("submitted_at", startOfWeek().toISOString());
-
-  return { completedThisWeek: count ?? 0 };
+/** The trainer's own submitted calibrations in the selected period. */
+export async function trainerFigures(
+  personId: string,
+  period: Period,
+): Promise<ActivityFigures> {
+  return personalCount(personId, "calibrated", period);
 }
 
 /* -------------------------------------------------------------------------- */
@@ -148,7 +155,32 @@ export interface SharedPerformance {
    */
   disagreements: { pct: number; comparisons: number; misaligned: number } | null;
   stages: StageFigure[];
+  /**
+   * Stage performance split by rubric version.
+   *
+   * Non-null ONLY when the selected period contains assessments from more than
+   * one rubric version. Two versions' "Opening" are not necessarily the same
+   * question — the criteria behind the name can differ — so pooling them into
+   * one percentage would assert an equivalence nobody established. When this is
+   * present the caller renders these blocks and ignores `stages`.
+   */
+  stageGroups: StageGroup[] | null;
   nonNegotiables: { pct: number; n: number; passed: number } | null;
+  /**
+   * Every rubric version represented by the assessments in this period, in
+   * label order. Disclosed on screen always — including when there is only one
+   * — so that its appearance is never itself the signal that something unusual
+   * happened.
+   */
+  rubricLabels: string[];
+}
+
+export interface StageGroup {
+  versionId: string;
+  versionLabel: string;
+  /** Calibrated evaluations of this version inside the period. */
+  evaluations: number;
+  stages: StageFigure[];
 }
 
 /**
@@ -225,10 +257,21 @@ export function criteriaMetRate(
  * rubric_criterion.stage text onto the five canonical keys. Nothing in this
  * file infers a stage from a label.
  *
- * RUBRIC VERSIONS NEVER MIX. The view carries no version of its own; scoping
- * is by evaluation id, and the caller passes only evaluations already filtered
- * to the active rubric_version_id. When a new version is activated, this
- * follows it automatically and cannot drag the old criteria along.
+ * RUBRIC VERSIONS NEVER MIX SILENTLY. The view carries no version of its own;
+ * scoping is by evaluation id. Under 0077 the caller passed only evaluations on
+ * the ACTIVE version, which made the question moot — and made historical months
+ * impossible, because activating a new rubric did not recompute an old month,
+ * it emptied it. 0078 scopes a month by the period alone and reports each
+ * assessment under the version stored on it; when a period contains more than
+ * one version the stage blocks are split by version rather than pooled
+ * (`stageGroups`). Nothing infers that two versions' stages are equivalent.
+ *
+ * KNOWN LIMITATION, carried forward deliberately and not fixed here:
+ * v_stage_checklist_status maps rubric_criterion.stage by exact free text
+ * ('Opening', 'Discovery Call', ...). A future rubric version that spells a
+ * stage differently would drop those criteria from this section silently. That
+ * needs a canonical-stage correction in the database BEFORE a second version is
+ * activated; it is out of scope for 0078-A.
  */
 
 /** Rows per request. PostgREST's own default is a cap, not a promise. */
@@ -309,144 +352,61 @@ async function stageTotals(evaluationIds: string[]): Promise<Map<string, StageTo
   return out;
 }
 
-export async function sharedPerformance(): Promise<SharedPerformance> {
-  // The active rubric, resolved the same way evaluation.ts resolves it, so the
-  // Dashboard and the scoring path can never disagree about which rubric is
-  // current.
-  const { data: rubric, error: rubricError } = await supabase
-    .from("rubric_version")
-    .select("id, version_label")
-    .eq("status", "active")
-    .limit(1)
-    .maybeSingle<{ id: string; version_label: string }>();
-  // "No active rubric" and "the read failed" are different answers and must
-  // not share a return value. The first is legitimately nothing to show; the
-  // second is thrown, so the caller renders its unavailable path rather than
-  // a section full of zeroes.
-  if (rubricError) throw new Error(rubricError.message);
+/* -------------------------------------------------------------------------- */
+/* Disagreement, for a period (0078-A)                                         */
+/* -------------------------------------------------------------------------- */
 
-  const empty: SharedPerformance = {
-    rubricVersionId: null,
-    rubricLabel: null,
-    observedCount: 0,
-    evaluatedCount: 0,
-    observedPct: null,
-    evaluatedPct: null,
-    disagreements: null,
-    stages: STAGES.map((s) => ({ ...s, pct: null, n: 0, touched: 0, met: 0, missed: 0, na: 0 })),
-    nonNegotiables: null,
-  };
-  if (!rubric) return empty;
+/** Rows per request, and ids per request. Same reasoning as the stage read. */
+const SCORE_PAGE = 1000;
+const SCORE_ID_CHUNK = 100;
 
-  const versionId = rubric.id;
+/**
+ * The month's comparison counts, computed from the same rows
+ * v_calibration_alignment_summary is built from.
+ *
+ * The view itself cannot serve a month: it is aggregated to (org, rubric
+ * version) and carries no date at all. This is not a widening of what anyone
+ * can see — the view is security_invoker over evaluation and evaluation_score,
+ * so a caller who can read it can already read these rows, and a caller who
+ * cannot gets nothing from either. Same predicate, same numbers, one extra
+ * dimension.
+ *
+ * `variance !== "agreed"` rather than `=== "changed"`: a null variance is not
+ * an agreement, and the view counts it the same way (IS DISTINCT FROM).
+ */
+async function disagreementTotals(
+  evaluationIds: string[],
+): Promise<{ comparisons: number; misaligned: number }> {
+  let comparisons = 0;
+  let misaligned = 0;
 
-  const [rawRows, calRows, alignment, nnRows] = await Promise.all([
-    // yes_count and applicable_count come back with the rows because the two
-    // headline scores are built from them per assessment — see scoreMean()
-    // below. They are no longer summed across assessments; that pooled form is
-    // a different metric and no longer carries either card's name.
-    supabase
-      .from("evaluation")
-      .select("yes_count, applicable_count")
-      .eq("kind", "raw_observation")
-      .eq("status", "submitted")
-      .is("archived_at", null)
-      .eq("rubric_version_id", versionId),
-    supabase
-      .from("evaluation")
-      .select("id, yes_count, applicable_count, overall_score")
-      .eq("kind", "calibrated")
-      .eq("status", "submitted")
-      .is("archived_at", null)
-      .eq("rubric_version_id", versionId),
-    // Anonymous aggregate. v_calibration_comparison stays self-only and
-    // untouched; this carries counts and nothing attributable to a person.
-    supabase
-      .from("v_calibration_alignment_summary")
-      .select("comparisons, misaligned")
-      .eq("rubric_version_id", versionId)
-      .maybeSingle<{ comparisons: number; misaligned: number }>(),
-    // A null non_negotiables_all_pass is not a failure — it is an evaluation
-    // that carries no authoritative Non-Negotiables result, and it is excluded
-    // from both sides of the fraction rather than counted against anyone.
-    supabase
-      .from("evaluation")
-      .select("non_negotiables_all_pass")
-      .eq("kind", "calibrated")
-      .eq("status", "submitted")
-      .is("archived_at", null)
-      .eq("rubric_version_id", versionId)
-      .not("non_negotiables_all_pass", "is", null),
-  ]);
+  for (let i = 0; i < evaluationIds.length; i += SCORE_ID_CHUNK) {
+    const chunk = evaluationIds.slice(i, i + SCORE_ID_CHUNK);
+    for (let from = 0; ; from += SCORE_PAGE) {
+      const { data, error } = await supabase
+        .from("evaluation_score")
+        .select("id, variance")
+        .in("evaluation_id", chunk)
+        .not("raw_value", "is", null)
+        .not("value", "is", null)
+        .order("id", { ascending: true })
+        .range(from, from + SCORE_PAGE - 1);
+      if (error) throw new Error(error.message);
 
-  // An error is not an empty result. `data ?? []` would turn a refused or
-  // failed read into "Observed 0" and "no data yet" — a measured claim about
-  // the department, made from a query that never returned. Every read that
-  // feeds a figure is checked before any figure is computed.
-  for (const r of [rawRows, calRows, nnRows]) {
-    if (r.error) throw new Error(r.error.message);
-  }
-
-  const raw = (rawRows.data ?? []) as { yes_count: number; applicable_count: number }[];
-  const cal = (calRows.data ?? []) as {
-    id: string;
-    yes_count: number;
-    applicable_count: number;
-    overall_score: number | null;
-  }[];
-
-  /**
-   * BOTH HEADLINE SCORES — the mean of the individual assessment scores.
-   *
-   * One assessment, one vote. Observed Score and Calibrated Score sit side by
-   * side and are meant to be compared, and a comparison is only honest if both
-   * sides are built the same way. Both are now means; neither is the pooled
-   * ratio they used to be.
-   *
-   * WHERE EACH SCORE COMES FROM, because the two differ and the difference
-   * matters to anyone maintaining this:
-   *
-   *   Calibrated — evaluation.overall_score, READ. recompute_evaluation()
-   *     writes it as round(yes / (yes + no) * 100, 2), N/A already excluded.
-   *     It is the authoritative per-evaluation figure and is not recomputed.
-   *
-   *   Raw QA — COMPUTED here as 100 * yes_count / applicable_count.
-   *     recompute_evaluation() deliberately leaves overall_score null on a raw
-   *     observation, so there is no stored score to read. This is not a new
-   *     formula: applicable_count is yes + no, so it is the same arithmetic the
-   *     database applies to a calibration, over that observation's own
-   *     applicable criteria. An observation with nothing applicable contributes
-   *     nothing rather than a zero.
-   *
-   * The pooled measure is NOT deleted — see criteriaMetRate() above, which no
-   * card calls. If the department ever wants sum(yes) / sum(applicable) it
-   * wants that name and its own card. It is not this one.
-   */
-  const scoreMean = (
-    rows: { overall_score?: number | null; yes_count: number | null; applicable_count: number | null }[],
-  ): number | null => {
-    const scores: number[] = [];
-    for (const r of rows) {
-      if (r.overall_score !== null && r.overall_score !== undefined) {
-        scores.push(r.overall_score);
-        continue;
+      const rows = (data ?? []) as { id: string; variance: string | null }[];
+      for (const r of rows) {
+        comparisons += 1;
+        if (r.variance !== "agreed") misaligned += 1;
       }
-      const app = r.applicable_count ?? 0;
-      if (app > 0) scores.push((100 * (r.yes_count ?? 0)) / app);
+      if (rows.length < SCORE_PAGE) break;
     }
-    if (scores.length === 0) return null;
-    // Averaged from the underlying numbers, never from rounded display strings.
-    return scores.reduce((a, v) => a + v, 0) / scores.length;
-  };
+  }
+  return { comparisons, misaligned };
+}
 
-  // Sequential, and deliberately so: the stage read is scoped by the exact
-  // evaluation ids the calibrated read just returned. Embedding
-  // `evaluation!inner` would keep it in the batch above, but PostgREST infers
-  // an embed's relationship from foreign keys, and the stage source is a VIEW
-  // with none — so the filter is applied here, where it is provable, rather
-  // than left to inference that could silently widen the population.
-  const totals = await stageTotals(cal.map((r) => r.id));
-  const byStage = STAGES.map((s) => {
+/** Shape the pooled totals into the five stage figures, in rubric order. */
+function buildStages(totals: Map<string, StageTotals>): StageFigure[] {
+  return STAGES.map((s) => {
     const t = totals.get(s.key);
     return {
       ...s,
@@ -460,50 +420,310 @@ export async function sharedPerformance(): Promise<SharedPerformance> {
       pct: t && t.applicable > 0 ? (100 * t.yes) / t.applicable : null,
     };
   });
+}
+
+/* -------------------------------------------------------------------------- */
+/* Which periods exist (0078-A)                                                */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * The months the period control offers, newest first, plus All time.
+ *
+ * Built from TWO timestamps — the earliest and latest submission — not from a
+ * read of every assessment ever submitted. Discovering which months exist must
+ * not cost the history it is describing.
+ *
+ * The current month is always offered even when it is empty: a reader opening
+ * the Dashboard on the 1st should see this month, honestly reported as having
+ * nothing yet, rather than be silently redirected to the last month that had
+ * data. Months inside the span with no assessments are offered for the same
+ * reason — a quiet month is a fact about the department.
+ *
+ * Never throws. A failed read costs the historical options, not the control.
+ */
+export async function availablePeriods(): Promise<Period[]> {
+  const base = () =>
+    supabase
+      .from("evaluation")
+      .select("submitted_at")
+      .eq("status", "submitted")
+      .is("archived_at", null)
+      .not("submitted_at", "is", null);
+
+  const current = currentMonthPeriod();
+  let months: Period[] = [];
+
+  try {
+    const [first, last] = await Promise.all([
+      base()
+        .order("submitted_at", { ascending: true })
+        .limit(1)
+        .maybeSingle<{ submitted_at: string }>(),
+      base()
+        .order("submitted_at", { ascending: false })
+        .limit(1)
+        .maybeSingle<{ submitted_at: string }>(),
+    ]);
+    months = monthsInSpan(
+      first.data?.submitted_at ?? null,
+      last.data?.submitted_at ?? null,
+    );
+  } catch {
+    months = [];
+  }
+
+  const keys = new Set(months.map(periodKey));
+  if (!keys.has(periodKey(current))) months.push(current);
+  // Newest first, whatever order the span produced.
+  months.sort((a, b) => periodKey(b).localeCompare(periodKey(a)));
+  return months;
+}
+
+/**
+ * The mean of individual assessment scores — one assessment, one vote.
+ *
+ * Exported because the representative rollup must use the IDENTICAL arithmetic
+ * as the Calibrated Score card. Two means of the same evaluations, computed in
+ * two files, is how a rep row and a headline card come to disagree by a tenth
+ * and cost an afternoon.
+ *
+ *   overall_score when present (the database's own figure, read not recomputed)
+ *   100 * yes / applicable otherwise (raw observations, which have no stored
+ *   score by design), skipping any assessment with nothing applicable.
+ *
+ * Rounded only for display, never here.
+ */
+export function assessmentScoreMean(
+  rows: { overall_score?: number | null; yes_count: number | null; applicable_count: number | null }[],
+): number | null {
+  const scores: number[] = [];
+  for (const r of rows) {
+    if (r.overall_score !== null && r.overall_score !== undefined) {
+      scores.push(r.overall_score);
+      continue;
+    }
+    const app = r.applicable_count ?? 0;
+    if (app > 0) scores.push((100 * (r.yes_count ?? 0)) / app);
+  }
+  if (scores.length === 0) return null;
+  return scores.reduce((a, v) => a + v, 0) / scores.length;
+}
+
+/* -------------------------------------------------------------------------- */
+/* The shared picture, for a period (0078-A)                                   */
+/* -------------------------------------------------------------------------- */
+
+export async function sharedPerformance(period: Period): Promise<SharedPerformance> {
+  const range = periodRange(period);
+
+  // Every version, not just the active one: a month is reported under the
+  // versions its own assessments carry, and the labels are needed to say so.
+  // The table holds one row per rubric version — single figures, not history.
+  const { data: versionRows, error: versionError } = await supabase
+    .from("rubric_version")
+    .select("id, version_label, status");
+  if (versionError) throw new Error(versionError.message);
+  const versions = (versionRows ?? []) as {
+    id: string;
+    version_label: string;
+    status: string;
+  }[];
+  const active = versions.find((v) => v.status === "active") ?? null;
+  const labelOf = (id: string): string =>
+    versions.find((v) => v.id === id)?.version_label ?? "unknown";
+
+  const empty: SharedPerformance = {
+    rubricVersionId: null,
+    rubricLabel: null,
+    observedCount: 0,
+    evaluatedCount: 0,
+    observedPct: null,
+    evaluatedPct: null,
+    disagreements: null,
+    stages: STAGES.map((s) => ({ ...s, pct: null, n: 0, touched: 0, met: 0, missed: 0, na: 0 })),
+    stageGroups: null,
+    nonNegotiables: null,
+    rubricLabels: [],
+  };
+
+  // ALL TIME KEEPS THE ACCEPTED 0077 SCOPING: the active rubric, exactly as
+  // released. A month does not — it is scoped by the period alone, and each
+  // assessment is reported under the version stored on it. That difference is
+  // deliberate and is the one place the two modes disagree; it is stated in the
+  // 0078-A record rather than buried here.
+  if (!range && !active) return empty;
+
+  const scopedRaw = () => {
+    let q = supabase
+      .from("evaluation")
+      .select("yes_count, applicable_count, rubric_version_id")
+      .eq("kind", "raw_observation")
+      .eq("status", "submitted")
+      .is("archived_at", null);
+    if (range) q = q.gte("submitted_at", range.startIso).lt("submitted_at", range.endIso);
+    else if (active) q = q.eq("rubric_version_id", active.id);
+    return q;
+  };
+  const scopedCal = () => {
+    let q = supabase
+      .from("evaluation")
+      .select("id, yes_count, applicable_count, overall_score, rubric_version_id")
+      .eq("kind", "calibrated")
+      .eq("status", "submitted")
+      .is("archived_at", null);
+    if (range) q = q.gte("submitted_at", range.startIso).lt("submitted_at", range.endIso);
+    else if (active) q = q.eq("rubric_version_id", active.id);
+    return q;
+  };
+  const scopedNn = () => {
+    let q = supabase
+      .from("evaluation")
+      .select("non_negotiables_all_pass")
+      .eq("kind", "calibrated")
+      .eq("status", "submitted")
+      .is("archived_at", null)
+      .not("non_negotiables_all_pass", "is", null);
+    if (range) q = q.gte("submitted_at", range.startIso).lt("submitted_at", range.endIso);
+    else if (active) q = q.eq("rubric_version_id", active.id);
+    return q;
+  };
+
+  const [rawRows, calRows, nnRows] = await Promise.all([
+    scopedRaw(),
+    scopedCal(),
+    scopedNn(),
+  ]);
+
+  // An error is not an empty result. `data ?? []` would turn a refused or
+  // failed read into "Observed 0" and "no data yet" — a measured claim about
+  // the department, made from a query that never returned.
+  for (const r of [rawRows, calRows, nnRows]) {
+    if (r.error) throw new Error(r.error.message);
+  }
+
+  const raw = (rawRows.data ?? []) as {
+    yes_count: number;
+    applicable_count: number;
+    rubric_version_id: string;
+  }[];
+  const cal = (calRows.data ?? []) as {
+    id: string;
+    yes_count: number;
+    applicable_count: number;
+    overall_score: number | null;
+    rubric_version_id: string;
+  }[];
+
+  /**
+   * BOTH HEADLINE SCORES — the mean of the individual assessment scores.
+   * Unchanged from the accepted 0077 follow-up; only the SET they run over is
+   * now the period's rather than the active rubric's.
+   *
+   *   Calibrated — evaluation.overall_score, READ, not recomputed.
+   *   Raw QA     — COMPUTED as 100 * yes_count / applicable_count, because
+   *                recompute_evaluation() deliberately leaves overall_score
+   *                null on a raw observation.
+   */
+  const scoreMean = assessmentScoreMean;
+
+  // Which rubric versions this period actually contains, from the assessments
+  // themselves rather than from what happens to be active today.
+  const versionIds = Array.from(
+    new Set([...raw, ...cal].map((r) => r.rubric_version_id).filter(Boolean)),
+  );
+  const rubricLabels = versionIds.map(labelOf).sort((a, b) => a.localeCompare(b));
+
+  // Stage performance. One pooled block normally; one block PER VERSION when a
+  // period genuinely spans a rubric change, because two versions' "Opening" are
+  // not established to be the same question.
+  const calVersions = Array.from(new Set(cal.map((r) => r.rubric_version_id)));
+  let stages: StageFigure[];
+  let stageGroups: StageGroup[] | null = null;
+
+  if (calVersions.length > 1) {
+    stages = empty.stages;
+    const groups: StageGroup[] = [];
+    for (const vid of calVersions) {
+      const ids = cal.filter((r) => r.rubric_version_id === vid).map((r) => r.id);
+      groups.push({
+        versionId: vid,
+        versionLabel: labelOf(vid),
+        evaluations: ids.length,
+        stages: buildStages(await stageTotals(ids)),
+      });
+    }
+    groups.sort((a, b) => a.versionLabel.localeCompare(b.versionLabel));
+    stageGroups = groups;
+  } else {
+    stages = buildStages(await stageTotals(cal.map((r) => r.id)));
+  }
 
   const nn = (nnRows.data ?? []) as { non_negotiables_all_pass: boolean }[];
   const nnPassed = nn.filter((r) => r.non_negotiables_all_pass).length;
-
   const evaluatedCount = cal.length;
-  // Deliberately NOT thrown. The whole point of the restricted state is that
-  // Disagreements can be unreadable while every other figure is fine, so an
-  // error here degrades this one figure instead of the section. It is folded
-  // into the same null the "row absent while calibrations exist" case
-  // produces — both mean "you cannot see this" — while a clean read of no row
-  // with no calibrations stays the genuine zero-data answer.
-  const alignFailed = alignment.error !== null && alignment.error !== undefined;
-  const align = alignFailed ? null : alignment.data;
 
-  return {
-    rubricVersionId: versionId,
-    rubricLabel: rubric.version_label,
-    observedCount: raw.length,
-    evaluatedCount,
-    observedPct: scoreMean(raw),
-    evaluatedPct: scoreMean(cal),
-    // Distinguishing "nothing to compare yet" from "you may not see this":
-    // with no calibrations at all there is genuinely nothing, and that is a
-    // zero-data state rather than a restricted one. A missing row while
-    // calibrations DO exist means the read was refused.
-    disagreements: align
+  /**
+   * Disagreement.
+   *
+   * ALL TIME reads the accepted aggregate view, unchanged. A MONTH recomputes
+   * the same counts from the same rows, because the view has no date dimension
+   * — see disagreementTotals().
+   *
+   * Either way null means "you cannot see this", never "there were none". An
+   * error here degrades this one figure rather than the section: the restricted
+   * state exists precisely because Disagreements can be unreadable while every
+   * other figure is fine.
+   */
+  let disagreements: SharedPerformance["disagreements"] = null;
+  if (range) {
+    if (evaluatedCount === 0) {
+      disagreements = { pct: 0, comparisons: 0, misaligned: 0 };
+    } else {
+      try {
+        const t = await disagreementTotals(cal.map((r) => r.id));
+        disagreements =
+          t.comparisons > 0
+            ? { pct: (100 * t.misaligned) / t.comparisons, comparisons: t.comparisons, misaligned: t.misaligned }
+            : { pct: 0, comparisons: 0, misaligned: 0 };
+      } catch {
+        disagreements = null;
+      }
+    }
+  } else if (active) {
+    const alignment = await supabase
+      .from("v_calibration_alignment_summary")
+      .select("comparisons, misaligned")
+      .eq("rubric_version_id", active.id)
+      .maybeSingle<{ comparisons: number; misaligned: number }>();
+    const alignFailed = alignment.error !== null && alignment.error !== undefined;
+    const align = alignFailed ? null : alignment.data;
+    disagreements = align
       ? {
           pct: (100 * align.misaligned) / align.comparisons,
           comparisons: align.comparisons,
-          // Carried through rather than reconstructed from the percentage:
-          // "2 of 105" is the readable form of the same number the view
-          // already returned. No new query, no new arithmetic.
           misaligned: align.misaligned,
         }
       : !alignFailed && evaluatedCount === 0
         ? { pct: 0, comparisons: 0, misaligned: 0 }
-        : null,
-    stages: byStage,
-    // nnPassed likewise: already counted above, now also carried, so the card
-    // can say "7 of 8 evaluations passed" without deriving it back out of a
-    // rounded percentage.
+        : null;
+  }
+
+  return {
+    rubricVersionId: active?.id ?? null,
+    rubricLabel: active?.version_label ?? null,
+    observedCount: raw.length,
+    evaluatedCount,
+    observedPct: scoreMean(raw),
+    evaluatedPct: scoreMean(cal),
+    disagreements,
+    stages,
+    stageGroups,
     nonNegotiables:
       nn.length > 0
         ? { pct: (100 * nnPassed) / nn.length, n: nn.length, passed: nnPassed }
         : null,
+    // All time states the active rubric it is scoped to; a month states what it
+    // actually contains.
+    rubricLabels: range ? rubricLabels : active ? [active.version_label] : [],
   };
 }

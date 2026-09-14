@@ -41,6 +41,12 @@ export function CalibrationAccuracySection({
   const isReviewerOnly =
     session.permissions.includes("raw_qa.submit") &&
     !session.permissions.includes("calibration.perform");
+  /**
+   * The exact predicate the database applies to this view:
+   * can_see_all_calibration_accuracy() is has_permission('calibration.perform').
+   * Mirrored so an empty result can be reported as what it actually is.
+   */
+  const canSeeHotspots = session.permissions.includes("calibration.perform");
 
   const load = useCallback(async (): Promise<void> => {
     try {
@@ -65,11 +71,34 @@ export function CalibrationAccuracySection({
 
       {hotspots.length === 0 ? (
         <div className="bg-card border border-rule-soft rounded-lg px-5 py-4">
-          <p className="text-[13.5px] text-ink-70">No disagreements recorded yet.</p>
-          <p className="text-[12.5px] text-ink-45 mt-1">
-            Criteria appear here once an observation has been calibrated and the
-            two assessments differ.
-          </p>
+          {/* RESTRICTED IS NOT ZERO (0078-A).
+              v_calibration_hotspots is gated on can_see_all_calibration_accuracy(),
+              which is has_permission('calibration.perform'). A caller without it
+              gets an empty result rather than an error — so an empty list alone
+              cannot tell "there were no disagreements" from "you may not see
+              them", and this panel used to state the first for both. It is a
+              claim about the department's calibration quality, and for a
+              reviewer it was simply false. The predicate is mirrored here, not
+              guessed: same permission, same answer. */}
+          {canSeeHotspots ? (
+            <>
+              <p className="text-[13.5px] text-ink-70">No disagreements recorded yet.</p>
+              <p className="text-[12.5px] text-ink-45 mt-1">
+                Criteria appear here once an observation has been calibrated and
+                the two assessments differ.
+              </p>
+            </>
+          ) : (
+            <>
+              <p className="text-[13.5px] text-ink-70">
+                Disagreement detail is restricted for your role.
+              </p>
+              <p className="text-[12.5px] text-ink-45 mt-1">
+                The department&rsquo;s overall alignment rate is in Team
+                performance above.
+              </p>
+            </>
+          )}
         </div>
       ) : (
         <div className="bg-card border border-rule-soft rounded-lg px-5 py-4">

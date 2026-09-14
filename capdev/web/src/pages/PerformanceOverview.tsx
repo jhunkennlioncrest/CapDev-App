@@ -3,9 +3,16 @@ import {
   sharedPerformance,
   LOW_SAMPLE,
   type SharedPerformance,
+  type StageFigure,
 } from "@/lib/dashboard";
 import { formatPercent } from "@/lib/performance";
-import { SectionHeading, StatCard, Meter } from "@/components/dash";
+import { SectionHeading, StatCard, Meter, PeriodSelect } from "@/components/dash";
+import {
+  periodKey,
+  periodLabel,
+  periodSentence,
+  type Period,
+} from "@/lib/period";
 
 /**
  * The shared performance picture (0077).
@@ -42,34 +49,81 @@ import { SectionHeading, StatCard, Meter } from "@/components/dash";
  *      — as a stage score. It is a pass rate over evaluations, not a 0–5 mean
  *      over criteria, so it now sits in its own panel that says "Pass rate".
  */
-export function PerformanceOverview(): JSX.Element | null {
+export function PerformanceOverview({
+  period,
+  periods,
+  onPeriodChange,
+}: {
+  /** The one selected period. Owned by the page, not by this section. */
+  period: Period;
+  /** Every period the control offers, newest first. */
+  periods: Period[];
+  onPeriodChange: (next: Period) => void;
+}): JSX.Element | null {
   const [data, setData] = useState<SharedPerformance | null>(null);
   const [failed, setFailed] = useState(false);
 
   useEffect(() => {
+    let cancelled = false;
+    setFailed(false);
+    setData(null);
     void (async () => {
       try {
-        setData(await sharedPerformance());
+        const next = await sharedPerformance(period);
+        // A slow read for a period the reader has already moved off must not
+        // overwrite the one they are now looking at.
+        if (!cancelled) setData(next);
       } catch {
-        setFailed(true);
+        if (!cancelled) setFailed(true);
       }
     })();
-  }, []);
+    return () => {
+      cancelled = true;
+    };
+  }, [period]);
 
   if (failed) return null;
   if (data === null) return null;
-  if (!data.rubricVersionId) return null;
 
   const dis = data.disagreements;
   const nn = data.nonNegotiables;
+  const options = periods.map(periodKey);
+  const byKey = new Map(periods.map((p) => [periodKey(p), p]));
 
   return (
     <>
       <section className="mt-8">
-        <SectionHeading
-          title="Team performance"
-          meta={`All time · Rubric v${data.rubricLabel}`}
-        />
+        <SectionHeading title="Team performance">
+          <PeriodSelect
+            value={periodKey(period)}
+            options={options}
+            onChange={(key) => {
+              const next = byKey.get(key);
+              if (next) onPeriodChange(next);
+            }}
+            labelOf={(key) => {
+              const p = byKey.get(key);
+              return p ? periodLabel(p) : key;
+            }}
+          />
+        </SectionHeading>
+
+        {/* What the numbers cover, in words and on the page — never only in a
+            tooltip. A percentage whose period can be discovered by hovering is
+            a percentage most readers will never check.
+
+            The rubric line is shown even when there is only one version, so
+            that its appearance is never itself the signal that something
+            unusual happened. */}
+        <p className="text-[12px] text-ink-45 -mt-1 mb-3 leading-snug">
+          {periodSentence(period)}
+          {" · "}
+          {data.rubricLabels.length === 0
+            ? "No assessments in this period"
+            : `Rubric version${data.rubricLabels.length === 1 ? "" : "s"} represented: ${data.rubricLabels
+                .map((l) => `v${l}`)
+                .join(", ")}`}
+        </p>
 
         {/* Five figures in one row, volume then the two scores then alignment.
             The scores carry the accent so the eye finds them first; nothing
@@ -133,7 +187,11 @@ export function PerformanceOverview(): JSX.Element | null {
       <section className="mt-8">
         <SectionHeading
           title="Stage performance"
-          meta="Calibrated rubric performance"
+          meta={
+            data.stageGroups
+              ? "Calibrated rubric performance · split by rubric version"
+              : "Calibrated rubric performance"
+          }
         />
 
         {/* Criteria met within each stage, pooled across every submitted
@@ -147,21 +205,62 @@ export function PerformanceOverview(): JSX.Element | null {
             be mistaken for — or averaged with — a stage percentage. It is a
             pass rate over whole evaluations; these five are ratios of
             criteria. */}
-        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
-          {data.stages.map((s) => (
-            <Meter key={s.key} label={s.label} pct={s.pct} detail={stageDetail(s)} />
-          ))}
-          <Meter
-            distinct
-            label="Non-Negotiables"
-            pct={nn === null ? null : nn.pct}
-            detail={
-              nn === null
-                ? "No results yet"
-                : `${nn.passed} of ${nn.n} evaluation${nn.n === 1 ? "" : "s"} passed`
-            }
-          />
-        </div>
+        {/* One block normally. One block PER RUBRIC VERSION when the period
+            genuinely spans a rubric change — pooling two versions' "Opening"
+            would assert that they ask the same question, which nothing here
+            establishes. Non-Negotiables stays a single card either way: it is a
+            pass rate over whole evaluations, not a ratio of criteria, so it
+            survives a version change intact. */}
+        {data.stageGroups ? (
+          <div className="flex flex-col gap-5">
+            {data.stageGroups.map((g) => (
+              <div key={g.versionId}>
+                <p className="text-[12px] text-ink-45 mb-2">
+                  Rubric v{g.versionLabel} &middot; {g.evaluations}{" "}
+                  {g.evaluations === 1 ? "evaluation" : "evaluations"}
+                </p>
+                <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
+                  {g.stages.map((st) => (
+                    <Meter
+                      key={st.key}
+                      label={st.label}
+                      pct={st.pct}
+                      detail={stageDetail(st)}
+                    />
+                  ))}
+                </div>
+              </div>
+            ))}
+            <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
+              <Meter
+                distinct
+                label="Non-Negotiables"
+                pct={nn === null ? null : nn.pct}
+                detail={
+                  nn === null
+                    ? "No results yet"
+                    : `${nn.passed} of ${nn.n} evaluation${nn.n === 1 ? "" : "s"} passed`
+                }
+              />
+            </div>
+          </div>
+        ) : (
+          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
+            {data.stages.map((st) => (
+              <Meter key={st.key} label={st.label} pct={st.pct} detail={stageDetail(st)} />
+            ))}
+            <Meter
+              distinct
+              label="Non-Negotiables"
+              pct={nn === null ? null : nn.pct}
+              detail={
+                nn === null
+                  ? "No results yet"
+                  : `${nn.passed} of ${nn.n} evaluation${nn.n === 1 ? "" : "s"} passed`
+              }
+            />
+          </div>
+        )}
       </section>
     </>
   );
@@ -178,14 +277,7 @@ export function PerformanceOverview(): JSX.Element | null {
  * separate lines because they are separate units and a single number would be
  * read as whichever the reader expected.
  */
-function stageDetail(s: {
-  pct: number | null;
-  n: number;
-  touched: number;
-  met: number;
-  missed: number;
-  na: number;
-}): JSX.Element {
+function stageDetail(s: StageFigure): JSX.Element {
   // Nothing recorded at all — not the same as nothing applicable.
   if (s.touched === 0) return <>No data yet</>;
 

@@ -332,3 +332,48 @@ export function Toggle({
     </button>
   );
 }
+
+/* -------------------------------------------------------------------------- */
+/* Period control (0078-A)                                                     */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * The one period control for the whole performance story.
+ *
+ * A native <select>, deliberately. It is keyboard-accessible and screen-reader
+ * correct without a line of JavaScript, it cannot be clipped by an overflow
+ * rule on a phone the way a custom popover can, and a month list is exactly
+ * what a native select is for. The label is visible rather than a placeholder:
+ * a bare "September 2026" in a header reads as a caption, not as a control.
+ */
+export function PeriodSelect({
+  value,
+  options,
+  onChange,
+  labelOf,
+  keyOf,
+}: {
+  value: string;
+  options: string[];
+  onChange: (key: string) => void;
+  labelOf: (key: string) => string;
+  keyOf?: (key: string) => string;
+}): JSX.Element {
+  return (
+    <label className="flex items-center gap-2 text-[12px] text-ink-45">
+      <span>Period</span>
+      <select
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        className="bg-card border border-rule-soft rounded-md px-2.5 py-1 text-[12.5px] text-ink
+                   focus:outline-none focus:ring-1 focus:ring-moss max-w-[11rem]"
+      >
+        {options.map((o) => (
+          <option key={keyOf ? keyOf(o) : o} value={o}>
+            {labelOf(o)}
+          </option>
+        ))}
+      </select>
+    </label>
+  );
+}

@@ -25,19 +25,32 @@ export function formatDate(iso: string | null): string {
 }
 
 /**
- * The business timezone for CapDev call dates (0071).
+ * The business timezone for CapDev (0071, generalised by 0078).
  *
  * A call's date is a property of the call, not of whoever is looking at it.
  * Two people in different countries must generate and read the same date in a
  * call title, so this is a fixed zone rather than the viewer's. It is the only
  * place the zone is named: nothing else in the client should hard-code it.
  *
+ * 0078 gave the same reasoning a second use. A reporting month is a property of
+ * the business, not of the reader: a manager in London opening "September 2026"
+ * must see the figures a manager in Cebu sees. lib/period.ts imports this
+ * constant rather than naming the zone again.
+ *
  * The database renders the same instant in the same zone
  * (compute_call_identity, 0071), and the two renderings have to agree
  * character for character — the title's date segment is what the identity
  * guard compares against before it will rewrite a generated title.
  */
-export const CALL_DATE_TIMEZONE = "Asia/Manila";
+export const BUSINESS_TIMEZONE = "Asia/Manila";
+
+/**
+ * The call-date zone, unchanged in meaning since 0071 — it is simply no longer
+ * the only thing the zone is used for. 0078 reckons reporting months in the
+ * same zone, and naming it twice is how two parts of the app end up disagreeing
+ * about which day a record belongs to.
+ */
+export const CALL_DATE_TIMEZONE = BUSINESS_TIMEZONE;
 
 /**
  * Postgres to_char(..., 'Mon') abbreviations, spelled out rather than taken

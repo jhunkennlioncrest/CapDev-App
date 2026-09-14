@@ -6,11 +6,12 @@ import { SectionHeading, Icon } from "@/components/dash";
 import { getQueue } from "@/lib/evaluation";
 import { getRawWorklist } from "@/lib/workflow";
 import {
+  availablePeriods,
   reviewerFigures,
   trainerFigures,
-  type ReviewerFigures,
-  type TrainerFigures,
+  type ActivityFigures,
 } from "@/lib/dashboard";
+import { currentMonthPeriod, periodLabel, type Period } from "@/lib/period";
 import type { Session } from "@/lib/types";
 import type { Workspace } from "@/components/AppShell";
 
@@ -45,30 +46,63 @@ export function HomeDashboard({
   const canSeePerformance = session.permissions.includes("evaluation.read");
   // Role-scoped figures, kept apart from the org-wide repository stats the
   // Repository page uses.
-  const [mine, setMine] = useState<ReviewerFigures | null>(null);
-  const [trainer, setTrainer] = useState<TrainerFigures | null>(null);
+  const [mine, setMine] = useState<ActivityFigures | null>(null);
+  const [trainer, setTrainer] = useState<ActivityFigures | null>(null);
 
-  const load = useCallback(async (): Promise<void> => {
-    const [raw, queue, r, t] = await Promise.all([
+  /**
+   * THE PERIOD LIVES HERE, not inside the performance section.
+   *
+   * One selected period governs the whole performance story — this person's
+   * own activity count as well as the department figures below it — and the
+   * two are siblings on this page, so the state has to be their common parent.
+   * The control itself is rendered inside the performance section, where a
+   * reader looking for it will be.
+   *
+   * It defaults to the current month, reckoned in the business timezone rather
+   * than the browser's.
+   */
+  const [period, setPeriod] = useState<Period>(() => currentMonthPeriod());
+  const [periods, setPeriods] = useState<Period[]>([]);
+
+  // Operational counts and the list of available periods: both are independent
+  // of which period is selected, so they are read once rather than on every
+  // change of the control.
+  const loadStanding = useCallback(async (): Promise<void> => {
+    const [raw, queue, options] = await Promise.all([
       canReview ? getRawWorklist() : Promise.resolve([]),
       canCalibrate ? getQueue() : Promise.resolve([]),
-      canReview && !canCalibrate
-        ? reviewerFigures(session.person.id)
-        : Promise.resolve(null),
-      canCalibrate ? trainerFigures(session.person.id) : Promise.resolve(null),
+      availablePeriods(),
     ]);
-    setMine(r);
-    setTrainer(t);
-
+    setPeriods([...options, { kind: "all" } as Period]);
     setCounts({
       pendingRaw: raw.length,
       waitingCalibration: queue.filter((q) => q.status === "waiting").length,
     });
-  }, [canReview, canCalibrate, session.person.id]);
+  }, [canReview, canCalibrate]);
 
   useEffect(() => {
-    void load();
-  }, [load]);
+    void loadStanding();
+  }, [loadStanding]);
+
+  useEffect(() => {
+    let cancelled = false;
+    void (async () => {
+      const [r, t] = await Promise.all([
+        canReview && !canCalibrate
+          ? reviewerFigures(session.person.id, period)
+          : Promise.resolve(null),
+        canCalibrate
+          ? trainerFigures(session.person.id, period)
+          : Promise.resolve(null),
+      ]);
+      if (cancelled) return;
+      setMine(r);
+      setTrainer(t);
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [canReview, canCalibrate, session.person.id, period]);
 
   const now = new Date();
   const today = now.toLocaleDateString("en-US", {
@@ -140,13 +174,18 @@ export function HomeDashboard({
                 icon="check"
                 value={
                   canCalibrate
-                    ? (trainer?.completedThisWeek ?? 0)
-                    : (mine?.completedThisWeek ?? 0)
+                    ? (trainer?.submitted ?? 0)
+                    : (mine?.submitted ?? 0)
                 }
+                /* The period is named, not implied. "this week" was measured
+                   from the browser's own midnight and sat above a department
+                   figure covering a different span entirely; both now follow
+                   the one selected period. */
                 label={
-                  canCalibrate
-                    ? "Calibrations this week"
-                    : "Observations this week"
+                  (canCalibrate ? "Calibrations" : "Observations") +
+                  (period.kind === "all"
+                    ? " submitted (all time)"
+                    : ` in ${periodLabel(period)}`)
                 }
                 action="See the library"
                 onClick={() => onNavigate("library")}
@@ -180,7 +219,13 @@ export function HomeDashboard({
           on every table underneath: the UI and the database agree by
           construction rather than by upkeep. It grants nothing — calibration,
           submission and management authority are elsewhere and untouched. */}
-      {canSeePerformance && <PerformanceOverview />}
+      {canSeePerformance && (
+        <PerformanceOverview
+          period={period}
+          periods={periods.length > 0 ? periods : [period, { kind: "all" }]}
+          onPeriodChange={setPeriod}
+        />
+      )}
 
       {/* A different question from the scores above: those are the
           representative's result, this is how closely a reviewer's observation
@@ -191,7 +236,7 @@ export function HomeDashboard({
       <CalibrationAccuracySection session={session} />
 
       {canSeePerformance && onOpenRepPerformance && (
-        <RepPerformanceSummary onOpen={onOpenRepPerformance} />
+        <RepPerformanceSummary onOpen={onOpenRepPerformance} period={period} />
       )}
 
     </div>

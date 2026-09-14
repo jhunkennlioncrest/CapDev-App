@@ -1,4 +1,6 @@
 import { supabase } from "./supabase";
+import { assessmentScoreMean } from "@/lib/dashboard";
+import { periodRange, type Period } from "@/lib/period";
 
 /**
  * Representative performance.
@@ -715,4 +717,138 @@ export async function calibratedTrends(
   const out: Record<string, RepTrend> = {};
   for (const [id, points] of byRep) out[id] = calibratedTrend(points);
   return out;
+}
+
+/* -------------------------------------------------------------------------- */
+/* 0078-A — representative performance for a period                            */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * One representative's assessments inside the selected month.
+ *
+ * WHY THIS EXISTS AT ALL, rather than a date filter on the views the Dashboard
+ * already uses: v_rep_performance and v_rep_raw_observation_performance are
+ * aggregated to one row per (representative x rubric version). They carry
+ * min/max(submitted_at) and nothing else about time, so there is no month to
+ * filter on — the aggregation has already happened. Adding a date dimension to
+ * an aggregated view is a larger and riskier change than reading the rows the
+ * views are built from, which is what this does.
+ *
+ * TWO READS FOR THE WHOLE ROSTER, not one per representative. The rows come
+ * back for every representative at once and are grouped here.
+ *
+ * THE SCORES ARE MEANS, matching the headline cards. The all-time views expose
+ * `score` as a POOLED ratio (sum yes / sum applicable); the monthly figures are
+ * means of the individual assessment scores, computed with the very same
+ * helper the Calibrated Score card uses. That is a deliberate change of meaning
+ * for the monthly columns and is recorded as such.
+ */
+export interface RepPeriodRow {
+  representative_id: string;
+  representative_name: string;
+  status: string;
+  is_inactive: boolean;
+  /** Submitted Raw QA observations of this representative's calls, in period. */
+  observations: number;
+  /** Submitted calibrated evaluations, in period. */
+  evaluations: number;
+  /** Mean of the individual Raw QA observation scores. */
+  observedPct: number | null;
+  /** Mean of the individual calibrated evaluation scores. */
+  calibratedPct: number | null;
+}
+
+export interface RepPeriodResult {
+  rows: RepPeriodRow[];
+  /** Representatives on the roster with no assessment at all in the period. */
+  withoutAssessments: number;
+}
+
+/** Rows per request. PostgREST's default is a cap, not a promise. */
+const REP_PERIOD_PAGE = 1000;
+
+interface PeriodAssessment {
+  id: string;
+  kind: string;
+  yes_count: number | null;
+  applicable_count: number | null;
+  overall_score: number | null;
+  call: { representative_id: string | null } | { representative_id: string | null }[] | null;
+}
+
+/** PostgREST returns a many-to-one embed as an object; be tolerant anyway. */
+function embeddedRepId(row: PeriodAssessment): string | null {
+  const c = row.call;
+  if (c === null || c === undefined) return null;
+  if (Array.isArray(c)) return c[0]?.representative_id ?? null;
+  return c.representative_id ?? null;
+}
+
+export async function repPerformanceForPeriod(period: Period): Promise<RepPeriodResult> {
+  const range = periodRange(period);
+  if (!range) return { rows: [], withoutAssessments: 0 };
+
+  // The embed is from a TABLE with a real foreign key (evaluation.call_id ->
+  // call.id), not from a view — the relationship PostgREST resolves is provable
+  // rather than inferred, which is why 0077 refused the view-embed form.
+  const assessments: PeriodAssessment[] = [];
+  for (let from = 0; ; from += REP_PERIOD_PAGE) {
+    const { data, error } = await supabase
+      .from("evaluation")
+      .select(
+        "id, kind, yes_count, applicable_count, overall_score, call!inner(representative_id)",
+      )
+      .in("kind", ["raw_observation", "calibrated"])
+      .eq("status", "submitted")
+      .is("archived_at", null)
+      .gte("submitted_at", range.startIso)
+      .lt("submitted_at", range.endIso)
+      .order("id", { ascending: true })
+      .range(from, from + REP_PERIOD_PAGE - 1);
+    // Thrown, never swallowed: a truncated or refused read must not be rendered
+    // as a month in which nobody was assessed.
+    if (error) throw new Error(error.message);
+    const rows = (data ?? []) as unknown as PeriodAssessment[];
+    assessments.push(...rows);
+    if (rows.length < REP_PERIOD_PAGE) break;
+  }
+
+  const directory = await listRepresentatives();
+  const byId = new Map(directory.map((r) => [r.id, r]));
+
+  const grouped = new Map<string, { raw: PeriodAssessment[]; cal: PeriodAssessment[] }>();
+  for (const a of assessments) {
+    const repId = embeddedRepId(a);
+    // A call with no representative linked yet belongs to nobody's month. It is
+    // not dropped from the department figures, which do not group by person.
+    if (!repId) continue;
+    const bucket = grouped.get(repId) ?? { raw: [], cal: [] };
+    if (a.kind === "calibrated") bucket.cal.push(a);
+    else bucket.raw.push(a);
+    grouped.set(repId, bucket);
+  }
+
+  const rows: RepPeriodRow[] = [];
+  for (const [repId, bucket] of grouped) {
+    const person = byId.get(repId);
+    rows.push({
+      representative_id: repId,
+      representative_name: person?.display_name ?? "Unknown representative",
+      status: person?.status ?? "",
+      is_inactive: person?.is_inactive ?? false,
+      observations: bucket.raw.length,
+      evaluations: bucket.cal.length,
+      observedPct: assessmentScoreMean(bucket.raw),
+      calibratedPct: assessmentScoreMean(bucket.cal),
+    });
+  }
+  rows.sort((a, b) => a.representative_name.localeCompare(b.representative_name));
+
+  // Stated, not implied by an absence: a reader needs to know the table is
+  // short because nobody was assessed, not because the read failed.
+  const withoutAssessments = directory.filter(
+    (r) => !r.is_inactive && !grouped.has(r.id),
+  ).length;
+
+  return { rows, withoutAssessments };
 }

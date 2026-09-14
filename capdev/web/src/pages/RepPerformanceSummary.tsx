@@ -2,15 +2,37 @@ import { useEffect, useState } from "react";
 import {
   listRepPerformance,
   listRepRawObservationPerformance,
+  repPerformanceForPeriod,
   calibratedTrends,
   type RepTrend,
   formatGap,
   formatPercent,
   scoreGap,
-  type RepPerformance,
 } from "@/lib/performance";
 import { listVersions } from "@/lib/rubricAdmin";
 import { SectionHeading, TrendTag, Avatar, Toggle } from "@/components/dash";
+import { periodLabel, type Period } from "@/lib/period";
+
+/**
+ * One row, whichever period produced it.
+ *
+ * All time and a month reach the same four figures by different routes — the
+ * accepted aggregated views for all time, per-evaluation rows for a month,
+ * because those views carry no date to filter on. Normalising here means the
+ * markup below is written once and cannot drift between the two modes.
+ */
+interface Line {
+  id: string;
+  name: string;
+  status: string;
+  is_inactive: boolean;
+  observations: number;
+  evaluations: number;
+  /** Raw QA figure for the period. */
+  raw: number | null;
+  /** Trainer (calibrated) figure for the period. */
+  trainer: number | null;
+}
 
 /**
  * The compact Dashboard summary.
@@ -28,50 +50,102 @@ import { SectionHeading, TrendTag, Avatar, Toggle } from "@/components/dash";
  */
 export function RepPerformanceSummary({
   onOpen,
+  period,
 }: {
   onOpen: (repId?: string) => void;
+  /** The one selected period, owned by the page. */
+  period: Period;
 }): JSX.Element | null {
-  const [rows, setRows] = useState<RepPerformance[] | null>(null);
-  /** Raw QA score by representative id. Absent means never observed. */
-  const [rawScores, setRawScores] = useState<Record<string, number | null>>({});
+  const [rows, setRows] = useState<Line[] | null>(null);
   const [trends, setTrends] = useState<Record<string, RepTrend>>({});
   const [showInactive, setShowInactive] = useState(false);
-  const [versionLabel, setVersionLabel] = useState<string>("");
+  /** Representatives with nothing at all in the period. Monthly mode only. */
+  const [quiet, setQuiet] = useState(0);
 
   useEffect(() => {
+    let cancelled = false;
+    setRows(null);
     void (async () => {
       const versions = await listVersions();
       const active = versions.find((v) => v.status === "active");
-      if (!active) {
-        setRows([]);
-        return;
+
+      let lines: Line[] = [];
+      let without = 0;
+
+      if (period.kind === "all") {
+        // ALL TIME keeps the accepted 0077 path exactly: the aggregated views,
+        // scoped to the active rubric, and the broader roster including
+        // representatives not yet assessed.
+        if (!active) {
+          if (!cancelled) {
+            setRows([]);
+            setQuiet(0);
+          }
+          return;
+        }
+        const [all, raw] = await Promise.all([
+          listRepPerformance(active.id),
+          listRepRawObservationPerformance(active.id),
+        ]);
+        const rawById = new Map(
+          raw.filter((r) => r.observations > 0).map((r) => [r.representative_id, r.score]),
+        );
+        lines = all.map((r) => ({
+          id: r.representative_id,
+          name: r.representative_name,
+          status: r.status,
+          is_inactive: r.is_inactive,
+          observations: rawById.has(r.representative_id) ? 1 : 0,
+          evaluations: r.evaluations,
+          raw: rawById.get(r.representative_id) ?? null,
+          trainer: r.score,
+        }));
+      } else {
+        // A MONTH cannot come from those views: they are aggregated to
+        // (representative x rubric version) and carry no date to filter on. The
+        // monthly rollup reads the rows they are built from instead, and its
+        // scores are MEANS of the individual assessments — the same arithmetic
+        // as the Calibrated Score card, rather than the views' pooled ratio.
+        const result = await repPerformanceForPeriod(period);
+        without = result.withoutAssessments;
+        lines = result.rows.map((r) => ({
+          id: r.representative_id,
+          name: r.representative_name,
+          status: r.status,
+          is_inactive: r.is_inactive,
+          observations: r.observations,
+          evaluations: r.evaluations,
+          raw: r.observedPct,
+          trainer: r.calibratedPct,
+        }));
       }
-      setVersionLabel(active.version_label);
-      const [all, raw] = await Promise.all([
-        listRepPerformance(active.id),
-        listRepRawObservationPerformance(active.id),
-      ]);
-      setRows(all);
-      setRawScores(
-        Object.fromEntries(
-          raw
-            .filter((r) => r.observations > 0)
-            .map((r) => [r.representative_id, r.score]),
-        ),
-      );
 
-      // Calibrated history for the whole roster, newest-first and stopping as
-      // soon as everyone has the two evaluations the trend needs. Only those
-      // with calibrations are asked about; anyone the read does not answer for
-      // falls to "No trend yet" below.
-      const scored = all.filter((r) => r.evaluations > 0);
-      setTrends(
-        await calibratedTrends(scored.map((r) => r.representative_id), active.id),
-      );
+      if (cancelled) return;
+      setRows(lines);
+      setQuiet(without);
+
+      // Calibrated history for the roster. Deliberately NOT period-scoped: the
+      // Trend column answers "is this representative improving against their
+      // own last calibration", which is a different question from "how did
+      // September go" and must not be quietly re-pointed at the period.
+      const scored = lines.filter((r) => r.evaluations > 0);
+      if (active && scored.length > 0) {
+        const t = await calibratedTrends(scored.map((r) => r.id), active.id);
+        if (!cancelled) setTrends(t);
+      } else if (!cancelled) {
+        setTrends({});
+      }
     })();
-  }, []);
+    return () => {
+      cancelled = true;
+    };
+  }, [period]);
 
-  if (rows === null || rows.length === 0) return null;
+  if (rows === null) return null;
+  // All time with nothing in it stays hidden, as it has been since 0077. A
+  // month with nothing in it does NOT hide: an empty September is an answer,
+  // and a section that disappears reads as a section that failed.
+  if (rows.length === 0 && period.kind === "all") return null;
 
   // Inactive representatives stay in the data — the detail view and their
   // history remain reachable — but a former employee is not a current concern,
@@ -83,7 +157,7 @@ export function RepPerformanceSummary({
     <section className="mt-8">
       <SectionHeading
         title="Representative performance"
-        meta={versionLabel ? `Rubric v${versionLabel}` : undefined}
+        meta={periodLabel(period)}
       >
         {/* Only offered when something is actually hidden, so the control
             does not imply there are former representatives when there are
@@ -97,6 +171,7 @@ export function RepPerformanceSummary({
         )}
       </SectionHeading>
 
+      {visible.length > 0 && (
       <div className="bg-card border border-rule-soft rounded-md overflow-hidden">
         {/* Wide: a management table. Column captions in the same quiet sans as
             everything else, one hairline under them, and no border around
@@ -120,30 +195,45 @@ export function RepPerformanceSummary({
           <span className="w-[4.5rem] text-right" title="Current calibrated score">
             Current
           </span>
-          <span className="w-[7rem]">Trend</span>
+          <span
+            className="w-[7rem]"
+            title="The representative's own calibrated history — latest score against the one before it. Not scoped to the selected period."
+          >
+            Trend
+          </span>
         </div>
 
         <ul className="divide-y divide-rule-soft">
           {visible.map((r) => {
-            const t: RepTrend = trends[r.representative_id] ??
+            const t: RepTrend = trends[r.id] ??
               { previous: null, current: null, delta: null, direction: "none" };
-            const rawScore = r.representative_id in rawScores
-              ? rawScores[r.representative_id] ?? null
-              : null;
-            const gap = scoreGap(rawScore, r.score);
+            const rawScore = r.raw;
+            const gap = scoreGap(rawScore, r.trainer);
 
             // One formatter for all four figures. They used to be printed
             // straight from their sources, which is why a single calibrated
             // evaluation could read 28.6% in the Trainer column and 28.57% in
             // Current — the same measurement wearing two faces.
             const rawText = formatPercent(rawScore);
-            const trainerText = formatPercent(r.score);
+            const trainerText = formatPercent(r.trainer);
             const rawTitle = rawScore === null
-              ? "No submitted Raw QA observation"
-              : "Raw QA: criteria met ÷ criteria assessed";
+              ? period.kind === "all"
+                ? "No submitted Raw QA observation"
+                : `No submitted Raw QA observation in ${periodLabel(period)}`
+              : period.kind === "all"
+                ? "Raw QA: criteria met ÷ criteria assessed"
+                : `Mean of ${r.observations} submitted Raw QA observation${
+                    r.observations === 1 ? "" : "s"
+                  } in ${periodLabel(period)}`;
             const trainerTitle = r.evaluations === 0
-              ? "No completed calibration"
-              : `${r.evaluations} evaluation${r.evaluations === 1 ? "" : "s"}`;
+              ? period.kind === "all"
+                ? "No completed calibration"
+                : `No calibration in ${periodLabel(period)}`
+              : period.kind === "all"
+                ? `${r.evaluations} evaluation${r.evaluations === 1 ? "" : "s"}`
+                : `Mean of ${r.evaluations} calibrated evaluation${
+                    r.evaluations === 1 ? "" : "s"
+                  } in ${periodLabel(period)}`;
             const gapTitle = gap === null
               ? "Needs both a Raw QA observation and a calibration"
               : "Trainer minus Raw QA, in percentage points. Positive means the Trainer scored higher than Raw QA.";
@@ -159,7 +249,7 @@ export function RepPerformanceSummary({
 
             const name = (
               <>
-                {r.representative_name}
+                {r.name}
                 {r.is_inactive && (
                   <span className="text-[11.5px] text-ink-45 ml-2 font-normal">
                     {r.status}
@@ -177,14 +267,14 @@ export function RepPerformanceSummary({
             );
 
             return (
-              <li key={r.representative_id}>
+              <li key={r.id}>
                 <button
-                  onClick={() => onOpen(r.representative_id)}
+                  onClick={() => onOpen(r.id)}
                   className="w-full text-left px-5 py-3.5 hover:bg-ground-2 transition-colors"
                 >
                   {/* Wide: one row, columns aligned with the captions above. */}
                   <span className="hidden sm:flex items-center gap-4">
-                    <Avatar name={r.representative_name} />
+                    <Avatar name={r.name} />
                     <span className="flex-1 min-w-0 text-[14.5px] font-medium text-ink truncate">
                       {name}
                     </span>
@@ -229,7 +319,7 @@ export function RepPerformanceSummary({
                       figures follow in a two-column block, each one labelled. */}
                   <span className="sm:hidden block">
                     <span className="flex items-center gap-2.5">
-                      <Avatar name={r.representative_name} />
+                      <Avatar name={r.name} />
                       <span className="text-[14.5px] font-medium text-ink">{name}</span>
                     </span>
                     <span className="mt-2 grid grid-cols-2 gap-x-4 gap-y-1 text-[12px] text-ink-45">
@@ -274,6 +364,20 @@ export function RepPerformanceSummary({
           })}
         </ul>
       </div>
+      )}
+
+      {/* Stated, never implied by an absence. A short table because nobody was
+          assessed and a short table because a read failed look identical, and
+          only one of them is an answer. */}
+      {period.kind !== "all" && (visible.length === 0 || quiet > 0) && (
+        <p className="text-[12.5px] text-ink-45 mt-2">
+          {visible.length === 0
+            ? `No representatives had assessments in ${periodLabel(period)}.`
+            : `${quiet} representative${quiet === 1 ? "" : "s"} had no assessments in ${periodLabel(
+                period,
+              )}.`}
+        </p>
+      )}
     </section>
   );
 }
