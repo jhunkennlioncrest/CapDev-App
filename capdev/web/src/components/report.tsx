@@ -1,4 +1,5 @@
 import type React from "react";
+import lioncrestLogo from "@/assets/lioncrest-logo.jpg";
 
 /**
  * Report presentation primitives (0079).
@@ -29,20 +30,20 @@ import type React from "react";
 /**
  * The official Lioncrest mark, supplied by the business.
  *
- * NULL UNTIL THE REAL ASSET IS ADDED, deliberately. Drawing, tracing or
- * approximating a company's logo is not a placeholder, it is a wrong logo — and
- * a wrong logo on a document headed "official" is worse than no logo at all.
- * The masthead is built to work either way, so this file compiles and the
- * report reads correctly today; when the asset lands the change is two lines:
+ * The supplied file, unaltered but for the blank margin around it being
+ * trimmed. Not redrawn, not traced, not recoloured, not re-lettered.
  *
- *   import lioncrestLogo from "@/assets/lioncrest-logo.png";
- *   const LOGO_SRC: string | null = lioncrestLogo;
+ * The mark is rendered with a fixed HEIGHT and width:auto, so the supplied
+ * proportions are preserved: it is never stretched to a box.
  *
- * The mark is rendered with a fixed HEIGHT and width:auto, so whatever
- * proportions the supplied file has are preserved. It is never stretched to a
- * box and never recoloured.
+ * The lockup's own bottom line ("DIGITAL MARKETING SERVICES CORP.") is 6.4% of
+ * the artwork's height, so at any size a masthead can carry it is artwork
+ * rather than reading matter. That is why the legal name stays as its own line
+ * of type beneath the mark -- the mark identifies, the line states.
+ *
+ * The masthead still renders correctly if this is ever null again.
  */
-const LOGO_SRC: string | null = null;
+const LOGO_SRC: string | null = lioncrestLogo;
 const LOGO_ALT = "Lioncrest Digital Marketing Services Corp.";
 
 /* -------------------------------------------------------------------------- */

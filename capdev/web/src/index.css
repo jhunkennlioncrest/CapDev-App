@@ -22,7 +22,7 @@
  * say whether a number is good.
  */
 :root {
-  --report-accent: #C2410C;
+  --report-accent: #A94F3D;
 }
 
 /* --- the sheet ----------------------------------------------------------- */
@@ -50,7 +50,9 @@
 
 /* Height fixed, width automatic: the supplied artwork keeps its proportions. */
 .report-logo {
-  height: 34px;
+  /* Height fixed, width auto: the supplied proportions are preserved and the
+     mark is never stretched to fit a box. */
+  height: 64px;
   width: auto;
   display: block;
 }
@@ -304,6 +306,11 @@
   }
 
   .report-masthead { padding-top: 0; }
+
+  /* On paper the mark has a physical size, not a pixel one. 17mm is the same
+     measure as the screen's 64px, so the masthead does not change proportion
+     between the two. */
+  .report-logo { height: 17mm; }
 
   /* Paper is not a screen: type in points, sized to be read rather than to fit
      a dashboard column. A report that shrinks itself onto one page is a report
